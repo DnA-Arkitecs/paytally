@@ -12,7 +12,8 @@ import { api } from "./rest.js";
 // They only work in the sandbox; no real card is ever used.
 export const TEST_CARDS = {
   "mesa-ridge": { number: "4012000033330026", expiry: "2030-12", brand: "Visa" },
-  default: { number: "4005519200000004", expiry: "2030-12", brand: "Visa" },
+  // 4005519200000004 is refused in the sandbox (PAYER_CANNOT_PAY) as of Oct 2026.
+  default: { number: "4012000033330026", expiry: "2030-12", brand: "Visa" },
 };
 
 const value = (n) => Number(n).toFixed(2);

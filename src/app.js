@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
+import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
 import * as paypal from "./paypal/index.js";
 import * as mockPaypal from "./paypal/mock.js";
@@ -111,6 +112,50 @@ export function createApp({
     res.json({ ok: true });
   });
 
+  // ---------- AG Studio: the collections dashboard (public/studio.html) ----------
+  // Studio's assistant runs on Claude: the page's adapter sends each turn here
+  // and this streams Claude's events back. Capped, because the demo is public.
+  const STUDIO_TURNS = Number(process.env.PAYTALLY_STUDIO_TURNS ?? 80);
+  let studioTurns = 0;
+  let studioClaude = null;
+
+  app.get("/api/studio/config", (req, res) => {
+    res.json({ license_key: process.env.AG_STUDIO || null, ai: hasClaudeKey() && studioTurns < STUDIO_TURNS, model: MODEL });
+  });
+
+  app.post("/api/studio/claude", express.json({ limit: "4mb" }), async (req, res) => {
+    const { system, messages, tools, tool_choice } = req.body || {};
+    if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "messages is required." } });
+    if (!hasClaudeKey()) return res.status(503).json({ error: { message: "No Anthropic key on this server, so the assistant is off." } });
+    if (studioTurns >= STUDIO_TURNS) return res.status(429).json({ error: { message: "This demo server has used its assistant turns." } });
+    studioTurns += 1;
+    const controller = new AbortController();
+    res.on("close", () => !res.writableEnded && controller.abort());
+    try {
+      studioClaude ||= new Anthropic();
+      const stream = studioClaude.messages.stream(
+        {
+          model: MODEL,
+          max_tokens: 16000,
+          system: typeof system === "string" ? system : undefined,
+          messages,
+          ...(Array.isArray(tools) && tools.length ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema, eager_input_streaming: true })), tool_choice } : {}),
+        },
+        { signal: controller.signal },
+      );
+      for await (const event of stream) {
+        if (!res.headersSent) res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-store" });
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      res.end();
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (!res.headersSent) return res.status(502).json({ error: { message: err.message } });
+      res.write(`data: ${JSON.stringify({ type: "error", error: { message: err.message } })}\n\n`);
+      res.end();
+    }
+  });
+
   app.use(express.json());
   app.use(express.static(path.join(ROOT, "public")));
   app.use("/vendor/ag-grid", express.static(path.join(ROOT, "node_modules", "ag-grid-community", "dist")));
@@ -179,6 +224,64 @@ export function createApp({
         crm: [sources.crm.header, ...sources.crm.rows.map((r) => r.ref)],
         emails: sources.emails.map((e) => e.ref),
       },
+    });
+  });
+
+  // The tables the AG Studio dashboard reads: every ledger line, every invoice
+  // sent through PayPal, and every movement of money PayPal confirmed. Before
+  // the work log is read, the lines come from the recorded run (nothing saved).
+  app.get("/api/studio/data", (req, res) => {
+    const state = store.load();
+    const sources = loadSources();
+    const today = paypal.today();
+    const ledger = state.ledger || (() => {
+      const offline = offlineExtraction(sources);
+      return buildLedger({ agency, extraction: offline.data, sources, resolutions: {}, extractor: offline.meta });
+    })();
+    const STATUS = { bill: "Billed", no_charge: "Not billed", flagged: "Needs a decision" };
+    const records = collect.allRecords(state);
+    // Nothing sent yet: show what each client's invoice would be, marked as a draft.
+    const drafts = records.length
+      ? []
+      : Object.values(
+          ledger.lines.reduce((acc, l) => {
+            if (l.status !== "bill") return acc;
+            const d = (acc[l.client_name] ??= { invoice: "draft", client: l.client_name, period: agency.period.label, status: "draft, not sent", total: 0, paid: 0, refunded: 0, owed: 0, sent: null, due: null, days_overdue: 0 });
+            d.total = d.owed = Math.round((d.total + l.amount) * 100) / 100;
+            return acc;
+          }, {}),
+        );
+    res.json({
+      agency: agency.agency.name,
+      period: agency.period.label,
+      built: Boolean(state.ledger),
+      lines: ledger.lines.map((l) => ({
+        client: l.client_name,
+        date: l.date || null,
+        item: l.item,
+        status: STATUS[l.status],
+        amount: l.status === "flagged" ? 0 : l.amount,
+        at_stake: l.status === "flagged" ? l.proposed_amount : 0,
+        reason: l.reason || l.flag || "",
+        sources: l.sources.join(", "),
+      })),
+      invoices: records.map((r) => ({
+        invoice: String(r.number),
+        client: r.client_name,
+        period: r.period,
+        status: r.status.toLowerCase().replace(/_/g, " "),
+        total: r.total,
+        paid: r.paid,
+        refunded: r.refunded,
+        owed: collect.OPEN.has(r.status) ? Math.round((r.total - r.paid) * 100) / 100 : 0,
+        sent: r.invoice_date,
+        due: r.due_date,
+        days_overdue: collect.daysOverdue(r, today),
+      })).concat(drafts),
+      money: records.flatMap((r) => [
+        ...(r.payments || []).map((p) => ({ date: p.at.slice(0, 10), client: r.client_name, invoice: String(r.number), kind: "Payment", amount: p.amount, via: p.via, paypal_id: p.capture_id })),
+        ...(r.refunds || []).filter((x) => x.moved_money).map((x) => ({ date: x.at.slice(0, 10), client: r.client_name, invoice: String(r.number), kind: "Refund", amount: -x.amount, via: "PayPal refund", paypal_id: x.refund_id })),
+      ]),
     });
   });
 
