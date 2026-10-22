@@ -1,0 +1,19 @@
+lead_id,created,name,email,phone,source,stage,insurance_or_budget,notes
+C-1001,2026-10-01,Amelia Hart,amelia.hart@example.com,(480) 555-0101,FB ad,Qualified,Insurance - Delta,
+C-1002,10/2/2026,Ben Carter,ben.carter@example.net,(480) 555-0102,Google,Unqualified,,"lives in Tucson, out of area"
+C-1003,2026-10-03,Chloe Diaz,chloe.diaz@example.com,(480) 555-0103,FB ad,Qualified,Budget confirmed,
+C-1004,2026-10-05,Daniel Evans,devans@example.org,(480) 555-0104,Google,Qualified,,
+C-1005,10/6/2026,Amelia Hart,AMELIA.HART@example.com,(480) 555-0101,FB ad,Qualified,Insurance - Delta,submitted form twice
+C-1006,2026-10-08,Farah Haddad,farah.haddad@example.com,(480) 555-0106,Referral page,Qualified,Insurance - Cigna,
+C-1007,2026-10-09,Gavin Brooks,gavin.b@example.net,(480) 555-0107,Google,New,,
+C-1008,10/11/2026,Hailey Monroe,hailey.monroe@example.com,(480) 555-0108,FB ad,Qualified?,Cash,whitening only - check if counts
+C-1009,2026-10-13,Isaac Romero,isaac.romero@example.org,(480) 555-0109,Google,Qualified,Insurance - Aetna,
+C-1010,2026-10-14,Jasmine Wu,jasmine.wu@example.com,(480) 555-0110,FB ad,qualified,insurance - MetLife,
+C-1011,10/16/2026,Kevin Patel,kevin.patel@example.net,(480) 555-0111,Google,Unqualified,,existing patient
+C-1012,2026-10-18,Laura Chen,laura.chen@example.com,(480) 555-0112,FB ad,Qualified,Budget confirmed,
+C-1013,2026-10-20,Mason Reed,mason.reed@example.org,(480) 555-0113,Google,Qualified,Insurance - Delta,
+C-1014,2026-10-22,Nina Alvarez,nina.alvarez@example.com,(480) 555-0114,FB ad,Qualified,Insurance - Guardian,
+C-1015,2026-09-29,Omar Sayed,omar.sayed@example.net,(480) 555-0115,Google,Qualified,Insurance - Cigna,
+C-1016,10/25/2026,Paige Sullivan,paige.sullivan@example.com,(480) 555-0116,FB ad,Qualified,Budget confirmed,
+C-1017,2026-10-27,Quinn Foster,quinn.foster@example.org,(480) 555-0117,Referral page,Qualified,Insurance - Aetna,
+C-1018,2026-10-29,Rosa Delgado,rosa.delgado@example.com,(480) 555-0118,FB ad,Qualified,"No insurance, cash pay - budget ok",

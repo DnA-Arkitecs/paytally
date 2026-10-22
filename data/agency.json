@@ -1,0 +1,76 @@
+{
+  "_note": "All names, companies, emails and amounts in this demo are invented. Email domains use the reserved example.com/.net/.org namespaces.",
+  "agency": {
+    "name": "Lanternfish Leads",
+    "owner": "Sam Rivera",
+    "billing_email": "billing@lanternfishleads.example.com"
+  },
+  "period": {
+    "label": "October 2026",
+    "start": "2026-10-01",
+    "end": "2026-10-31"
+  },
+  "currency": "USD",
+  "clients": [
+    {
+      "id": "harbor-pine",
+      "name": "Harbor & Pine Roofing",
+      "aliases": ["Harbor and Pine", "H&P", "H&P Roofing", "harbor pine roofing"],
+      "contact": "Jordan Avery",
+      "billing_email": "jordan@harborpine.example.com",
+      "summary": "$150 per booked call that takes place; no-shows free",
+      "terms": {
+        "type": "per_held_call",
+        "item_label": "Booked call",
+        "rate": 150,
+        "late_cancel_hours": 24
+      },
+      "terms_text": [
+        "§1 $150 per booked sales call that takes place.",
+        "§2 No-shows are free.",
+        "§3 A rescheduled call is billed once, when it takes place.",
+        "§4 A call Harbor & Pine cancels with less than 24 hours notice is billed; earlier cancellations are free. Cancellations by the homeowner are free."
+      ]
+    },
+    {
+      "id": "cobalt-dental",
+      "name": "Cobalt Dental Studio",
+      "aliases": ["Cobalt Dental", "Cobalt"],
+      "contact": "Dr. Alex Morgan",
+      "billing_email": "dr.morgan@cobaltdental.example.com",
+      "summary": "$1,200 monthly retainer plus $45 per qualified lead",
+      "terms": {
+        "type": "retainer_plus_per_lead",
+        "item_label": "Qualified lead",
+        "retainer": 1200,
+        "rate": 45
+      },
+      "terms_text": [
+        "§1 $1,200 monthly retainer.",
+        "§2 $45 per qualified lead: a new-patient inquiry the studio marks Qualified, with insurance or a budget confirmed.",
+        "§3 The same person (same email address) counts once per month.",
+        "§4 Leads the studio marks Unqualified, or has not reviewed yet, are not billed."
+      ]
+    },
+    {
+      "id": "mesa-ridge",
+      "name": "Mesa Ridge Solar",
+      "aliases": ["Mesa Ridge", "MRS", "mesa ridge"],
+      "contact": "Carla Jimenez",
+      "billing_email": "carla@mesaridgesolar.example.com",
+      "summary": "$200 per in-home consultation, $250 from the 9th; no-shows free if reported within 48h",
+      "terms": {
+        "type": "tiered_per_held_with_report_window",
+        "item_label": "In-home consultation",
+        "rate": 200,
+        "tier_from": 9,
+        "tier_rate": 250,
+        "report_window_hours": 48
+      },
+      "terms_text": [
+        "§1 $200 per in-home consultation that takes place. From the 9th billable consultation in a month, $250 each.",
+        "§2 A no-show is free if Mesa Ridge reports it within 48 hours of the appointment time. A no-show reported later is billed."
+      ]
+    }
+  ]
+}

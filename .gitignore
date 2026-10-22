@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Secrets: keys live in environment variables, never in files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Runtime state (ledger, approvals, mock PayPal records)
+var/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.log

@@ -1,0 +1,12 @@
+body { margin: 0; background: #f6f4ee; color: #14213d; font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+main { max-width: 720px; margin: 32px auto; background: #fff; border: 1px solid #e5e1d6; border-radius: 12px; padding: 28px 32px; }
+.tag { display: inline-block; font-size: 12px; background: #fff4dc; color: #9a5b00; border-radius: 999px; padding: 3px 10px; margin: 0 0 14px; }
+h1 { margin: 0 0 4px; font-size: 22px; }
+.id { font-family: ui-monospace, Consolas, monospace; color: #6b7280; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+td { padding: 9px 0; border-bottom: 1px solid #efece3; vertical-align: top; }
+td small { color: #6b7280; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 16px; }
+tr.total td { font-weight: 700; border-bottom: 0; font-size: 16px; }
+.note { color: #334155; margin-top: 16px; }
+@media (max-width: 760px) { main { margin: 16px; padding: 20px; } }

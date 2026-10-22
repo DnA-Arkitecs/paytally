@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PayTally</title>
+  <meta name="description" content="PayTally reads a messy work log, applies each client's terms and drafts PayPal invoices where every line shows its reason and source.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314213d'/%3E%3Cpath d='M9 8v16M13 8v16M17 8v16M21 8v16M6 20l20-8' stroke='%23f2c14e' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/vendor/ag-grid/ag-grid-community.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="currentColor"/><path d="M9 8v16M13 8v16M17 8v16M21 8v16M6 20l20-8" stroke="#f2c14e" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <span>PayTally</span>
+    </div>
+    <div class="context"><span id="agency-name"></span><span class="sep">·</span><span id="period"></span></div>
+    <div class="badges">
+      <span id="badge-agent" class="badge"></span>
+      <span id="badge-paypal" class="badge"></span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="intro" class="intro">
+      <div class="intro-text">
+        <h1>Bill every result, with the receipt attached.</h1>
+        <p>PayTally reads this month's messy work log (calendar, CRM, client emails), applies each client's terms, and drafts invoices where every line says why it is there and which row it came from. Nothing goes to PayPal until you approve it.</p>
+      </div>
+      <div class="intro-actions">
+        <button id="build" class="btn primary" type="button">Read the work log</button>
+        <span id="build-note" class="muted small"></span>
+      </div>
+    </section>
+
+    <section id="cards" class="cards" aria-label="Invoices by client"></section>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" role="tab" data-tab="ledger" type="button">Ledger</button>
+      <button class="tab" role="tab" data-tab="log" type="button">Work log</button>
+      <button class="tab" role="tab" data-tab="activity" type="button">Activity</button>
+    </nav>
+
+    <section id="tab-ledger" class="tabpanel">
+      <div class="toolbar">
+        <div class="seg" id="client-filter" role="group" aria-label="Filter by client"></div>
+        <label class="check"><input type="checkbox" id="flags-only"> Needs you only</label>
+        <input id="search" class="search" type="search" placeholder="Search lines, people, rows" aria-label="Search lines">
+      </div>
+      <div id="grid" class="grid"></div>
+      <p id="ignored-note" class="footnote"></p>
+    </section>
+
+    <section id="tab-log" class="tabpanel" hidden>
+      <p class="muted small">The raw inputs, exactly as exported. Each row shows the ledger line it became, or why it was left out.</p>
+      <div id="worklog" class="worklog"></div>
+    </section>
+
+    <section id="tab-activity" class="tabpanel" hidden>
+      <ol id="activity" class="activity"></ol>
+    </section>
+
+    <footer class="foot">
+      <span>All companies, people and amounts in this demo are invented.</span>
+      <button id="reset" class="linkish" type="button">Reset demo</button>
+    </footer>
+  </main>
+
+  <aside id="drawer" class="drawer" aria-hidden="true" aria-label="Line details"></aside>
+  <div id="scrim" class="scrim" hidden></div>
+
+  <dialog id="approve-dialog" class="dialog">
+    <form method="dialog" id="approve-form"></form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+=== E1 ===
+From: Jordan Avery <jordan@harborpine.example.com>
+To: billing@lanternfishleads.example.com
+Date: Fri, 17 Oct 2026 08:12
+Subject: Luis Ortega - no show
+
+Hi team,
+
+Heads up that Luis Ortega (yesterday, 3pm) never showed. Our estimator waited 20 minutes and called twice. Please don't bill us for that one.
+
+Thanks,
+Jordan
+
+=== E2 ===
+From: Carla Jimenez <carla@mesaridgesolar.example.com>
+To: billing@lanternfishleads.example.com
+Date: Sat, 11 Oct 2026 09:05
+Subject: no-show yesterday
+
+Owen Fischer was a no-show yesterday at 11. Rep was at the door, nobody home.
+
+Carla
+
+=== E3 ===
+From: Carla Jimenez <carla@mesaridgesolar.example.com>
+To: billing@lanternfishleads.example.com
+Date: Thu, 22 Oct 2026 16:40
+Subject: Re: no-show yesterday
+
+Also, Imani Scott on the 17th didn't show up either. Sorry, forgot to tell you last week.
+
+=== E4 ===
+From: Sam Rivera <billing@lanternfishleads.example.com>
+To: Carla Jimenez <carla@mesaridgesolar.example.com>
+Date: Fri, 24 Oct 2026 10:15
+Subject: Mid-month preview
+
+Hi Carla, quick preview before the month closes. Consultations so far: Hannah Price, Jorge Alvarez, Keisha Grant, Bianca Rossi, Caleb Turner, Imani Scott, Derek Huang, Robert Okafor. Full invoice after the 31st.
+
+Sam
+
+=== E5 ===
+From: Carla Jimenez <carla@mesaridgesolar.example.com>
+To: Sam Rivera <billing@lanternfishleads.example.com>
+Date: Sat, 25 Oct 2026 11:02
+Subject: Re: Mid-month preview
+
+Sam, Robert Okafor (Oct 21) shouldn't be on there. He got a quote from us back in August, before he ever talked to your team, so he's our lead, not yours. Please take him off.
+
+Carla
+
+=== E6 ===
+From: Jordan Avery <jordan@harborpine.example.com>
+To: billing@lanternfishleads.example.com
+Date: Wed, 29 Oct 2026 07:48
+Subject: Sofia Reyes
+
+Not sure our guy made it to Sofia Reyes yesterday, his truck broke down. Let me check and get back to you.
+
+Jordan
+
+=== E7 ===
+From: Dr. Alex Morgan <dr.morgan@cobaltdental.example.com>
+To: billing@lanternfishleads.example.com
+Date: Sun, 12 Oct 2026 19:30
+Subject: Hailey Monroe
+
+Hailey Monroe came in asking about whitening only. I'm not sure that's what we agreed counts as a new-patient lead. Can we talk before you bill it?
+
+Alex
