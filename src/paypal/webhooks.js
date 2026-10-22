@@ -1,35 +1,15 @@
 // PayPal webhooks (sandbox): registering PayTally's URL and checking that an
 // incoming event really came from PayPal. The Agent Toolkit has no webhook
-// tools, so these two calls use PayPal's REST API directly.
-const BASE = "https://api-m.sandbox.paypal.com";
-export const EVENT_TYPES = ["INVOICING.INVOICE.PAID", "INVOICING.INVOICE.CANCELLED", "INVOICING.INVOICE.REFUNDED"];
+// tools, so these calls use PayPal's REST API directly (rest.js).
+import { api } from "./rest.js";
 
-let token = null;
-
-async function accessToken() {
-  if (token && token.expires > Date.now() + 60_000) return token.value;
-  const basic = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString("base64");
-  const res = await fetch(`${BASE}/v1/oauth2/token`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: "grant_type=client_credentials",
-  });
-  if (!res.ok) throw new Error(`PayPal token request failed (${res.status}).`);
-  const body = await res.json();
-  token = { value: body.access_token, expires: Date.now() + body.expires_in * 1000 };
-  return token.value;
-}
-
-async function api(method, path, body) {
-  const res = await fetch(BASE + path, {
-    method,
-    headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
-    body: typeof body === "string" ? body : body && JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`PayPal ${method} ${path} failed (${res.status}): ${text.slice(0, 300)}`);
-  return text ? JSON.parse(text) : {};
-}
+export const EVENT_TYPES = [
+  "INVOICING.INVOICE.PAID",
+  "INVOICING.INVOICE.CANCELLED",
+  "INVOICING.INVOICE.REFUNDED",
+  "PAYMENT.CAPTURE.COMPLETED",
+  "PAYMENT.CAPTURE.REFUNDED",
+];
 
 // Finds the sandbox webhook for this URL, or creates it. Returns its id, which
 // signature checks need.

@@ -1,5 +1,5 @@
-// A stand-in for PayPal with the same calls and response shapes as sandbox.js.
-// It keeps invoices in var/mock-paypal.json and sends nothing anywhere. Like
+// A stand-in for PayPal with the same calls and response shapes as sandbox.js
+// and payments.js. It keeps invoices in var/mock-paypal.json and sends nothing anywhere. Like
 // PayPal, it reports payments and refunds a moment later as webhook events,
 // delivered in-process to whatever onEvent() registered.
 import fs from "node:fs";
@@ -131,6 +131,30 @@ export async function recordRefund(id, refund) {
   save(db);
   emit("INVOICING.INVOICE.REFUNDED", invoice);
   return { id, refund_id: `EXTR-MOCK-${crypto.randomBytes(4).toString("hex").toUpperCase()}` };
+}
+
+// Orders, Vault and refunds (payments.js in the sandbox).
+const mockId = (prefix) => `${prefix}${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+
+function emitPayment(type, resource) {
+  const event = { id: mockId("WH-MOCK-"), event_type: type, create_time: new Date().toISOString(), resource_type: type.includes("REFUND") ? "refund" : "capture", resource };
+  setTimeout(() => listeners.forEach((fn) => fn(event)), EVENT_DELAY_MS).unref?.();
+}
+
+export async function saveCard({ number }) {
+  return { vault_id: mockId("VAULT-MOCK-"), brand: "VISA", last_digits: number.slice(-4) };
+}
+
+export async function charge({ amount, currency, custom_id, invoice_id }) {
+  const capture_id = mockId("CAP-MOCK-");
+  emitPayment("PAYMENT.CAPTURE.COMPLETED", { id: capture_id, status: "COMPLETED", custom_id, invoice_id, amount: { currency_code: currency, value: Number(amount).toFixed(2) } });
+  return { order_id: mockId("ORDER-MOCK-"), capture_id, status: "COMPLETED" };
+}
+
+export async function refundCapture(captureId, { amount, currency }) {
+  const refund_id = mockId("REF-MOCK-");
+  emitPayment("PAYMENT.CAPTURE.REFUNDED", { id: refund_id, status: "COMPLETED", amount: { currency_code: currency, value: Number(amount).toFixed(2) }, links: [{ rel: "up", href: `/v2/payments/captures/${captureId}` }] });
+  return { refund_id, status: "COMPLETED" };
 }
 
 export async function getInvoice(id) {

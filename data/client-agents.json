@@ -1,0 +1,35 @@
+{
+  "_note": "Invented. The client's side of the demo: each client's own AI agent, the instructions and spending cap its human gave it, and the client's own records, which PayTally never sees. The token is a public demo token that scopes PayTally's MCP server to that one invented client.",
+  "agents": [
+    {
+      "client_id": "mesa-ridge",
+      "token": "demo-mesa-ridge",
+      "name": "Mesa Ridge's AI agent",
+      "human": "Carla Jimenez",
+      "human_role": "operations manager, Mesa Ridge Solar",
+      "cap": 2000,
+      "instructions": [
+        "Check every line of Lanternfish Leads' invoice against our field log before paying anything.",
+        "Ask for the proof behind any line our field log doesn't agree with. If their proof holds up under our agreement, accept it.",
+        "Dispute only what our field log and our agreement actually support, and say exactly why.",
+        "Pay through PayPal only, only the exact amount owed, and only once every dispute is settled.",
+        "Never pay more than $2,000 on one invoice without asking me. I approve every payment with one tap."
+      ],
+      "records_label": "Mesa Ridge Solar field log, October 2026 (kept by our reps)",
+      "records": [
+        "Oct 1, 5:00 PM  Hannah Price, Mesa. Consultation done.",
+        "Oct 4, 10:00 AM  Jorge Alvarez, Gilbert. Consultation done.",
+        "Oct 7, 6:00 PM  Keisha Grant, Chandler. Consultation done.",
+        "Oct 10, 11:00 AM  Owen Fischer, Tempe. NO-SHOW: rep at the door, nobody home. Carla emailed Lanternfish Oct 11, 9:05 AM.",
+        "Oct 12, 3:00 PM  Bianca Rossi, Mesa. Consultation done.",
+        "Oct 15, 5:30 PM  Caleb Turner, Scottsdale. Consultation done.",
+        "Oct 17, 10:00 AM  Imani Scott, Mesa. NO-SHOW. Carla forgot to tell Lanternfish until Oct 22.",
+        "Oct 18, 12:00 PM  Derek Huang, Gilbert. Consultation done.",
+        "Oct 21, 4:00 PM  Robert Okafor, Tempe. Existing customer: we quoted him Aug 14 (quote Q-0814), before Lanternfish. Not their lead; Carla told them Oct 25.",
+        "Oct 24, 11:00 AM  Lena Moretti, Chandler. Consultation done.",
+        "Oct 27, 2:00 PM  Victor Osei, Mesa. NO-SHOW: rep waited at the door 2:00 to 2:20 PM, called twice, nobody home. Carla texted Sam Rivera at Lanternfish Oct 28, 8:10 AM: \"Victor Osei was a no-show yesterday at 2.\"",
+        "Oct 29, 6:00 PM  Mei Tanaka, Scottsdale. Consultation done."
+      ]
+    }
+  ]
+}

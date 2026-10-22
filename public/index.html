@@ -41,9 +41,10 @@
 
     <nav class="tabs" role="tablist">
       <button class="tab active" role="tab" data-tab="ledger" type="button">Ledger</button>
-      <button class="tab" role="tab" data-tab="log" type="button">Work log</button>
+      <button class="tab" role="tab" data-tab="agent" type="button">Client's AI agent</button>
       <button class="tab" role="tab" data-tab="collections" type="button">Collections</button>
       <button class="tab" role="tab" data-tab="replies" type="button">Client replies</button>
+      <button class="tab" role="tab" data-tab="log" type="button">Work log</button>
       <button class="tab" role="tab" data-tab="activity" type="button">Activity</button>
     </nav>
 
@@ -55,6 +56,17 @@
       </div>
       <div id="grid" class="grid"></div>
       <p id="ignored-note" class="footnote"></p>
+    </section>
+
+    <section id="tab-agent" class="tabpanel" hidden>
+      <div class="settle">
+        <div class="settle-main">
+          <div id="settle-head" class="settle-head"></div>
+          <ol id="settle-steps" class="steps"></ol>
+          <div id="settle-checkpoint"></div>
+        </div>
+        <aside id="settle-side" class="settle-side"></aside>
+      </div>
     </section>
 
     <section id="tab-log" class="tabpanel" hidden>

@@ -12,7 +12,8 @@
     "test": "node --test \"test/*.test.js\"",
     "eval": "node scripts/eval-extraction.js",
     "eval:replies": "node scripts/eval-replies.js",
-    "smoke:sandbox": "node scripts/sandbox-smoke.js"
+    "smoke:sandbox": "node scripts/sandbox-smoke.js",
+    "eval:settlement": "node scripts/eval-settlement.js"
   },
   "keywords": [
     "paypal",
@@ -24,8 +25,10 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@paypal/agent-toolkit": "^1.11.0",
     "ag-grid-community": "^36.2.0",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "zod": "^3.25.76"
   }
 }

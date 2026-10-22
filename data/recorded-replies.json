@@ -58,6 +58,31 @@
         "reply_if_credit": "Hi Alex,\n\nThanks for flagging Rosa Delgado. We've taken her line off your October invoice. Since the invoice hasn't been paid yet, PayPal will cancel the current one and send you a corrected invoice shortly. You can pay that one as normal.\n\nIf anything else on it looks off, just let me know.\n\nThanks,\nSam\nLanternfish Leads",
         "reply_if_no_credit": "Hi Alex,\n\nGood question. Rosa Delgado came in on October 29. Your team marked her Qualified in the CRM with the note 'No insurance, cash pay - budget ok'. Under §2 of our agreement, a qualified lead is one your studio marks Qualified with insurance or a budget confirmed. A cash patient with a confirmed budget meets that, even without insurance, so the charge stands.\n\nIf you'd like to treat cash patients differently going forward, I'm happy to talk it through. Just reply or grab a time on our next check-in.\n\nThanks,\nSam\nLanternfish Leads"
       }
+    },
+    "agent|mesa-ridge|calendar:25": {
+      "model": "claude-opus-5-5",
+      "recorded_at": "2026-10-22T23:13:33.814Z",
+      "seconds": 12,
+      "invoice_paid": false,
+      "score": {
+        "right_line": true,
+        "right_call": true,
+        "ok": true
+      },
+      "draft": {
+        "line_key": "mesa-ridge|calendar:25",
+        "finding": "log_cannot_settle",
+        "cited_sources": [
+          "calendar:25",
+          "terms",
+          "calendar:18",
+          "email:E3"
+        ],
+        "recommend_credit": true,
+        "owner_summary": "Carla says Victor Osei (Oct 27, 2pm, Mesa) was a no-show and that she texted you at 8:10 AM on Oct 28, about 18 hours later and inside the 48-hour window in §2. Our only record is a bare \"Completed\" calendar status with no notes, and the Imani Scott row shows the same status even though Carla's email reported her as a no-show, so the status settles nothing; texts to you aren't in the log. Please check your texts from Carla on the morning of Oct 28. If her message is there, credit the line; the billing system will work out the tier for the remaining lines.",
+        "reply_if_credit": "Hi Carla,\n\nThanks for flagging Victor Osei. Our calendar only shows the Oct 27, 2pm appointment as \"Completed\", with nothing noting a consultation happened. Your text to me on the morning of Oct 28 reporting the no-show is well within the 48 hours in our agreement. So I'm taking that line off. Since invoice M0002 hasn't been paid yet, PayPal will cancel it and send you a corrected invoice shortly.\n\nSorry for the hassle,\nSam\nLanternfish Leads",
+        "reply_if_no_credit": "Hi Carla,\n\nThanks for raising Victor Osei. Our calendar shows his Oct 27, 2pm appointment in Mesa as completed. Under our agreement, a no-show is only free if it's reported to us within 48 hours of the appointment. I couldn't find a report of this one in our billing inbox or records, so the charge stands for now. If you can forward the text you mentioned, or anything else from that day, I'll gladly take another look. Happy to talk it through on a call too.\n\nBest,\nSam\nLanternfish Leads"
+      }
     }
   }
 }

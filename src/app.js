@@ -13,14 +13,27 @@ import { buildLedger, invoiceDraft } from "./ledger.js";
 import { issueApproval, ApprovalError } from "./approvals.js";
 import * as collect from "./collect.js";
 import { loadClientReplies, loadRecordedDrafts, draftReplyWithClaude, draftProblem, scoreDraft } from "./replies.js";
+import * as settle from "./settlement.js";
+import { mountMcp, TOOLS } from "./mcp.js";
+import { runPhase, replayPhase } from "./client-agent.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const money = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const addDays = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 
+export function loadRecordedSettlement(dataDir = DATA_DIR) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dataDir, "recorded-settlement.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 export function createApp({
   extract = extractWithClaude,
   draftReply = draftReplyWithClaude,
+  runClientPhase = runPhase,
+  replayClientPhase = replayPhase,
   hasClaudeKey = () => Boolean(process.env.ANTHROPIC_API_KEY),
   registerWebhook = true,
 } = {}) {
@@ -29,6 +42,8 @@ export function createApp({
   const owner = agency.agency.owner;
   const clientReplies = loadClientReplies();
   const history = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "history.json"), "utf8")).invoices;
+  const clientAgents = settle.loadClientAgents().map((a) => ({ ...a, client_name: agency.clients.find((c) => c.id === a.client_id).name }));
+  const agentFor = (clientId) => clientAgents.find((a) => a.client_id === clientId);
 
   // ---------- PayPal webhooks ----------
   // In the sandbox, PayPal posts invoice events here and each one is checked
@@ -49,7 +64,32 @@ export function createApp({
     const line = collect.applyEvent(state, event, via);
     if (!line) return;
     store.log(state, line, "paypal");
+    // A payment a client's agent asked for is done when PayPal says the invoice is paid.
+    for (const p of Object.values(state.payment_requests)) {
+      const record = collect.findRecord(state, p.paypal_id);
+      if (p.status === "sent_to_paypal" && record && collect.PAID.has(record.status)) {
+        p.status = "paid";
+        settlementStep(p.client_id, { who: "paypal", text: `PayPal's webhook: invoice ${p.invoice_number} paid, ${money(p.amount)}. Settled.` });
+      }
+    }
+    if (event.event_type.startsWith("PAYMENT.CAPTURE")) {
+      const record = collect.recordForEvent(state, event);
+      settlementStep(record.client_id, { who: "paypal", text: line });
+    }
     store.save(state);
+  }
+
+  // The agent settlement transcript: one client's agent, PayTally's answers and
+  // every human checkpoint, in order. Steps only land while that client's
+  // settlement is the one on screen. A tool call is logged when it starts and
+  // filled in, in place, when its result is back.
+  function settlementStep(clientId, step) {
+    store.updateSettlement((s) => {
+      if (s.client_id !== clientId) return;
+      const started = step.call_id ? s.steps.findIndex((x) => x.call_id === step.call_id) : -1;
+      if (started >= 0) s.steps[started] = { ...s.steps[started], ...step, pending: false };
+      else s.steps.push({ at: new Date().toISOString(), ...step });
+    });
   }
   if (paypal.mode === "mock") mockPaypal.onEvent((event) => receive(event, "PayPal webhook (mock)"));
 
@@ -91,7 +131,7 @@ export function createApp({
     const after = invoiceDraft(ledger, agency, thread.client_id);
     const amount = Math.round((record.total - after.total) * 100) / 100;
     const how = collect.PAID.has(record.status) ? "refund" : collect.OPEN.has(record.status) && !record.paid ? "corrected_invoice" : null;
-    return { line_key: line.key, item: line.item, amount, new_total: after.total, how };
+    return { line_key: line.key, item: line.item, amount, new_total: after.total, how, moves_money: how === "refund" && Boolean(record.payments?.length) };
   }
 
   app.get("/api/state", (req, res) => {
@@ -117,6 +157,17 @@ export function createApp({
       }),
       replies: clientReplies.map(({ id, client_id, arrives, from }) => ({ id, client_id, arrives, from })),
       threads: Object.values(state.threads).map((t) => ({ ...t, credit: creditPreview(state, t, sources) })),
+      client_agents: clientAgents.map(({ client_id, client_name, name, human, human_role, cap, token, instructions, records_label, records }) => ({
+        client_id, client_name, name, human, human_role, cap, token, instructions, records_label, records,
+        saved_method: state.saved_methods[client_id] || null,
+      })),
+      mcp: { path: "/mcp", tools: Object.entries(TOOLS).map(([name, t]) => ({ name, title: t.title, description: t.description })), log: state.mcp_log.slice(0, 40) },
+      payment_requests: Object.values(state.payment_requests),
+      settlement: (() => {
+        const s = store.loadSettlement();
+        const recording = loadRecordedSettlement();
+        return { ...s, messages: undefined, recorded: Boolean(recording), recorded_model: recording?.model || null, assumes: recording?.assumes || null };
+      })(),
       activity: state.activity,
       sources: Object.fromEntries(Object.entries(sources.byRef).map(([ref, r]) => [ref, { label: r.label, raw: r.raw, kind: r.kind, fields: r.fields }])),
       raw: {
@@ -209,6 +260,23 @@ export function createApp({
     }
   }
 
+  // The client's own one-time setup, done for the demo: each client with an AI
+  // agent has saved a card in PayPal Vault (one of PayPal's sandbox test cards),
+  // so a payment its human approves later needs no checkout. Put in once per demo run.
+  async function seedSavedMethods(state) {
+    for (const agent of clientAgents) {
+      if (state.saved_methods[agent.client_id]) continue;
+      const card = paypal.TEST_CARDS[agent.client_id] || paypal.TEST_CARDS.default;
+      try {
+        const saved = await paypal.saveCard({ ...card, name: agent.human });
+        state.saved_methods[agent.client_id] = { ...saved, holder: agent.human, saved_at: new Date().toISOString(), mode: paypal.mode };
+        store.log(state, `Demo setup: ${agent.human} saved ${agent.client_name}'s ${saved.brand} ending ${saved.last_digits} in PayPal Vault (${paypal.mode}, test card), so a payment approved in PayTally needs no checkout.`, "paypal");
+      } catch (err) {
+        store.log(state, `Could not save ${agent.client_name}'s card in PayPal Vault: ${err.message}`, "error");
+      }
+    }
+  }
+
   app.post("/api/build", async (req, res) => {
     const sources = loadSources();
     let extraction = null;
@@ -248,6 +316,7 @@ export function createApp({
     const flags = state.ledger.lines.filter((l) => l.status === "flagged").length;
     store.log(state, `Ledger built: ${state.ledger.lines.length} lines, ${flags} need your decision.`);
     await seedHistory(state);
+    await seedSavedMethods(state);
     store.save(state);
     res.json({ ok: true, kind: extraction.meta.kind, fallback: Boolean(notice), notice });
   });
@@ -310,22 +379,93 @@ export function createApp({
   });
 
   // ---------- Collections ----------
-  // Demo only: stands in for the client paying. PayPal records a test payment,
-  // then PayPal's own webhook is what marks the invoice paid here.
+  // A PayPal payment on an invoice: kept with the record (its capture is what a
+  // later refund returns money from). "awaiting" is set before the PayPal call,
+  // because PayPal's webhook can arrive before the call returns.
+  async function takePayment(paypalId, what, pay) {
+    let state = store.load();
+    const record = collect.findRecord(state, paypalId);
+    const owed = Math.round((record.total - record.paid) * 100) / 100;
+    record.awaiting = { what: "payment", at: new Date().toISOString() };
+    store.save(state);
+    try {
+      const paid = await pay(record, owed);
+      state = store.load();
+      const fresh = collect.findRecord(state, paypalId);
+      (fresh.payments ||= []).push({ capture_id: paid.capture_id, order_id: paid.order_id, amount: owed, at: new Date().toISOString(), via: what });
+      return { state, record: fresh, paid, owed };
+    } catch (err) {
+      state = store.load();
+      const fresh = collect.findRecord(state, paypalId);
+      if (fresh) fresh.awaiting = null;
+      store.save(state);
+      throw err;
+    }
+  }
+
+  // Demo only: stands in for the client paying by card on their own. PayPal
+  // takes a real sandbox payment from a test card, the payment is recorded on
+  // the invoice, and PayPal's own webhook is what marks the invoice paid here.
   app.post("/api/invoices/:pid/test-pay", async (req, res) => {
-    const state = store.load();
-    const record = collect.findRecord(state, req.params.pid);
+    const record = collect.findRecord(store.load(), req.params.pid);
     if (!record) return res.status(404).json({ error: "No such invoice." });
     if (!collect.OPEN.has(record.status)) return res.status(409).json({ error: `This invoice is ${record.status.toLowerCase()}.` });
-    const owed = record.total - record.paid;
+    if (record.awaiting) return res.status(409).json({ error: "This invoice is waiting for PayPal's webhook." });
     try {
-      await paypal.recordTestPayment(record.paypal_id, owed, agency.currency);
-      record.awaiting = { what: "payment", at: new Date().toISOString() };
-      store.log(state, `Demo: ${record.client_name} pays invoice ${record.number}. PayPal recorded a test payment of ${money(owed)}; waiting for PayPal's webhook to mark it paid.`, "paypal");
-      store.save(state);
+      const out = await takePayment(record.paypal_id, "test card", (r, owed) => paypal.payWithTestCard(r.paypal_id, r.number, owed, agency.currency));
+      store.log(out.state, `Demo: ${out.record.client_name} pays invoice ${out.record.number} by card. PayPal captured ${money(out.owed)} (capture ${out.paid.capture_id}) and it is recorded on the invoice; waiting for PayPal's webhook to mark it paid.`, "paypal");
+      store.save(out.state);
       res.json({ ok: true });
     } catch (err) {
-      failed(res, state, err, "Recording the test payment");
+      failed(res, store.load(), err, "The test payment");
+    }
+  });
+
+  // The client's human approves (or declines) a payment their agent asked for
+  // over MCP. Approval is tied to this exact payment; PayPal then charges the
+  // card the client saved in PayPal Vault.
+  app.post("/api/payments/:id/:decision", async (req, res) => {
+    const { id, decision } = req.params;
+    let state = store.load();
+    const request = state.payment_requests[id];
+    if (!request) return res.status(404).json({ error: "No such payment." });
+    if (request.status !== "awaiting_approval") return res.status(409).json({ error: "This payment is already decided." });
+    const agent = agentFor(request.client_id);
+    const record = collect.findRecord(state, request.paypal_id);
+    if (decision === "decline") {
+      request.status = "declined";
+      store.log(state, `${agent.human} declined ${agent.name}'s payment of ${money(request.amount)} on invoice ${request.invoice_number}.`, "client");
+      settlementStep(request.client_id, { who: "client_human", text: `${agent.human} declined paying ${money(request.amount)}.` });
+      store.save(state);
+      return res.json({ ok: true });
+    }
+    if (decision !== "approve") return res.status(400).json({ error: "decision must be approve or decline." });
+    if (Number(req.body?.expected_amount) !== request.amount) return res.status(409).json({ error: "The payment changed since you reviewed it. Review again." });
+    if (!record || !collect.OPEN.has(record.status) || Math.round((record.total - record.paid) * 100) / 100 !== request.amount) {
+      return res.status(409).json({ error: "The invoice changed since this payment was asked for." });
+    }
+    const saved = state.saved_methods[request.client_id];
+    if (!saved) return res.status(409).json({ error: `${agent.client_name} has no payment method saved in PayPal.` });
+    const payment = { kind: "payment", invoice_id: request.paypal_id, number: request.invoice_number, amount: request.amount, currency: request.currency, vault_id: saved.vault_id, request_id: request.id };
+    const approval = issueApproval(payment, { approvedBy: `${agent.human} (${agent.client_name})` });
+    request.status = "sending";
+    store.save(state);
+    settlementStep(request.client_id, { who: "client_human", text: `${agent.human} approved paying ${money(request.amount)} on invoice ${request.invoice_number} with the ${saved.brand} ending ${saved.last_digits} saved in PayPal.` });
+    try {
+      const out = await takePayment(request.paypal_id, `${saved.brand} ·${saved.last_digits} saved in PayPal Vault`, () => paypal.payInvoice(payment, approval));
+      const fresh = out.state.payment_requests[id];
+      fresh.status = collect.PAID.has(out.record.status) ? "paid" : "sent_to_paypal";
+      fresh.approved_at = approval.approved_at;
+      fresh.paypal = { order_id: out.paid.order_id, capture_id: out.paid.capture_id };
+      store.log(out.state, `${agent.human} approved ${agent.name}'s payment. PayPal charged the saved ${saved.brand} ending ${saved.last_digits}: ${money(request.amount)} captured (capture ${out.paid.capture_id}), recorded on invoice ${request.invoice_number}.`, "paypal");
+      store.save(out.state);
+      settlementStep(request.client_id, { who: "paypal", text: `PayPal charged the saved card: ${money(request.amount)} captured (capture ${out.paid.capture_id}). Waiting for PayPal's webhook.` });
+      res.json({ ok: true });
+    } catch (err) {
+      state = store.load();
+      state.payment_requests[id].status = "failed";
+      settlementStep(request.client_id, { who: "paypal", text: `PayPal did not take the payment: ${err.message}` });
+      failed(res, state, err, "The payment");
     }
   });
 
@@ -373,19 +513,225 @@ export function createApp({
     }
   });
 
-  // ---------- Client replies ----------
-  const recordedDraft = (id, view, sources) => {
-    const rec = loadRecordedDrafts()[id];
-    return rec && rec.invoice_paid === view.paid && !draftProblem(rec.draft, view, sources) ? rec : null;
+  // ---------- Client replies and agent disputes ----------
+  // A recorded draft is used only if it still fits: same paid state, rows that
+  // exist, and (for an agent's dispute) the same line.
+  const recordedDraft = (thread, view, sources) => {
+    const rec = loadRecordedDrafts()[thread.recording_key || thread.id];
+    if (!rec || rec.invoice_paid !== view.paid || draftProblem(rec.draft, view, sources)) return null;
+    return !thread.line_key || rec.draft.line_key === thread.line_key ? rec : null;
   };
+
+  // What Claude reads as the client's message: an emailed reply, or an agent's dispute.
+  const replyFor = (thread) => clientReplies.find((r) => r.id === thread.id) || { id: thread.id, from: thread.from, subject: thread.subject, body: thread.body };
 
   function attachDraft(state, thread, draft, meta) {
     thread.draft = draft;
     thread.draft_meta = meta;
     const line = state.invoices[thread.client_id].items.find((l) => l.key === draft.line_key);
     const call = draft.recommend_credit ? "recommends a credit" : "recommends keeping the charge";
-    store.log(state, `Claude (${meta.kind}) checked ${thread.client_name}'s reply against ${draft.cited_sources.join(", ")}: ${line.item}, ${draft.finding.replace(/_/g, " ")}; ${call}.`, "agent");
+    store.log(state, `Claude (${meta.kind}) checked ${thread.client_name}'s ${thread.channel === "agent" ? "agent's dispute" : "reply"} against ${draft.cited_sources.join(", ")}: ${line.item}, ${draft.finding.replace(/_/g, " ")}; ${call}.`, "agent");
   }
+
+  // ---------- MCP: the client's own agent ----------
+  // Live rulings on agent disputes cost API credit, so a server makes a few at most.
+  const LIVE_RULINGS = Number(process.env.PAYTALLY_LIVE_RULINGS ?? 12);
+  let liveRulings = 0;
+
+  // PayTally's agent checks an agent's dispute: a recorded Claude ruling when one
+  // fits (the demo default), else a live one when this server can make it.
+  async function ruleOn(threadId, { live }) {
+    const sources = loadSources();
+    const before = store.load();
+    const thread = before.threads[threadId];
+    const view = collect.invoiceView(before.invoices[thread.client_id]);
+    let out = null;
+    let notice = "";
+    const rec = recordedDraft(thread, view, sources);
+    if ((live || !rec) && hasClaudeKey() && liveRulings < LIVE_RULINGS) {
+      liveRulings += 1;
+      const started = Date.now();
+      try {
+        const client = agency.clients.find((c) => c.id === thread.client_id);
+        out = await draftReply({ agency, client, invoice: view, sources, reply: replyFor(thread) });
+        const problem = draftProblem(out.draft, view, sources) || (out.draft.line_key !== thread.line_key ? "the ruling is about a different line" : "");
+        if (problem) throw new Error(problem);
+        out = { ...out, seconds: Math.round((Date.now() - started) / 1000) };
+      } catch (err) {
+        out = null;
+        notice = `The live ruling failed (${err.message})${rec ? ", so this is the recorded one" : ""}.`;
+      }
+    }
+    const state = store.load();
+    const current = state.threads[threadId];
+    if (out) attachDraft(state, current, out.draft, { kind: "live", model: out.model, at: new Date().toISOString(), seconds: out.seconds, score: null });
+    else if (rec) attachDraft(state, current, rec.draft, { kind: "recorded", model: rec.model, at: rec.recorded_at, score: rec.score });
+    if (notice) store.log(state, notice, "error");
+    store.save(state);
+    return state;
+  }
+
+  const mcpHandlers = {
+    get_ledger: async (agent) => settle.ledgerView(store.load(), agency, agent.client_id),
+    explain_charge: async (agent, { line_key }) => settle.explainCharge(store.load(), agency, loadSources(), agent.client_id, line_key),
+    dispute_line: async (agent, args) => {
+      const state = store.load();
+      const thread = settle.openDispute(state, agency, agent, args);
+      store.log(state, `${agent.name} disputed ${state.invoices[agent.client_id]?.items.find((l) => l.key === thread.line_key)?.item || thread.line_key} over MCP (${thread.id}).`, "client");
+      store.save(state);
+      const after = await ruleOn(thread.id, { live: store.loadSettlement().mode === "live" });
+      const t = after.threads[thread.id];
+      if (t.draft) {
+        settlementStep(agent.client_id, { who: "paytally", text: `PayTally's agent checked ${t.draft.cited_sources.join(", ")}: ${t.draft.finding.replace(/_/g, " ")}. It recommends ${t.draft.recommend_credit ? "a credit" : "keeping the charge"}; ${owner} decides.` });
+      }
+      return settle.disputeView(after, loadSources(), t, creditPreview(after, t, loadSources()), owner);
+    },
+    get_dispute: async (agent, { dispute_id }) => {
+      const state = store.load();
+      const thread = state.threads[dispute_id];
+      if (!thread || thread.client_id !== agent.client_id) throw new settle.AgentError(`No dispute ${dispute_id} for this client.`);
+      return settle.disputeView(state, loadSources(), thread, creditPreview(state, thread, loadSources()), owner);
+    },
+    approve_and_pay: async (agent, args) => {
+      const state = store.load();
+      if (!state.saved_methods[agent.client_id]) throw new settle.AgentError(`${agent.client_name} has no payment method saved in PayPal yet.`);
+      const before = Object.keys(state.payment_requests).length;
+      const request = settle.requestPayment(state, agent, args);
+      if (Object.keys(state.payment_requests).length > before) {
+        const saved = state.saved_methods[agent.client_id];
+        store.log(state, `${agent.name} asked to pay invoice ${request.invoice_number} (${money(request.amount)}, within the ${money(agent.cap)} cap) with the ${saved.brand} ending ${saved.last_digits} saved in PayPal. Waiting for ${agent.human}.`, "client");
+        settlementStep(agent.client_id, { who: "paytally", text: `Payment ${request.id} set up: ${money(request.amount)} on invoice ${request.invoice_number}, within the ${money(agent.cap)} cap. Nothing moves until ${agent.human} approves.` });
+      }
+      store.save(state);
+      return { ...settle.paymentView(state, request), next: `${agent.human} approves this payment in PayTally with one tap. Call get_payment to follow it.` };
+    },
+    get_payment: async (agent, { payment_id }) => {
+      const state = store.load();
+      const request = state.payment_requests[payment_id];
+      if (!request || request.client_id !== agent.client_id) throw new settle.AgentError(`No payment ${payment_id} for this client.`);
+      return settle.paymentView(state, request);
+    },
+  };
+
+  mountMcp(app, {
+    agentForToken: (token) => clientAgents.find((a) => a.token === token) || null,
+    handlers: mcpHandlers,
+    log: (agent, tool, args, outcome) => {
+      const state = store.load();
+      store.logMcp(state, { client_id: agent.client_id, agent: agent.name, tool, args, ok: outcome.ok, error: outcome.error || null });
+      store.save(state);
+    },
+  });
+
+  // ---------- Agent settlement (the demo's two-agent run) ----------
+  // Phase "audit": the client's agent reads the invoice, checks each line
+  // against its own records, asks for proof and disputes. Then the owner
+  // answers. Phase "settle": the agent checks the answer and asks to pay; the
+  // client's human approves; PayPal charges the saved card; PayPal's webhook
+  // closes it. Recorded by default (the agent's words and choices replayed,
+  // every tool call real); live with Claude when the server has a key.
+  const LIVE_SETTLEMENTS = Number(process.env.PAYTALLY_LIVE_SETTLEMENTS ?? 6);
+  let liveSettlements = 0;
+
+  function settlementBlocker(phase, agent) {
+    const state = store.load();
+    const s = store.loadSettlement();
+    if (s.running) return "The client's agent is already working.";
+    const record = state.invoices[agent.client_id];
+    if (!record) return `Approve and send ${agent.client_name}'s invoice first.`;
+    if (phase === "audit" && s.phases_done.includes("audit")) return "The agent already checked this invoice. Reset the demo to run it again.";
+    if (phase === "settle") {
+      if (!s.phases_done.includes("audit")) return "Run the agent's check first.";
+      if (s.phases_done.includes("settle")) return "The agent already settled this invoice.";
+      const open = Object.values(state.threads).filter((t) => t.channel === "agent" && t.client_id === agent.client_id && t.status === "open");
+      if (open.length) return `Answer the agent's dispute first (${open.map((t) => t.id).join(", ")}).`;
+    }
+    return "";
+  }
+
+  // Live or recorded, decided before anything starts. A recording only fits the
+  // invoice it was made on: the audit assumes the owner didn't bill Robert
+  // Okafor; the settle phase assumes the owner credited the disputed line.
+  function planSettlement(phase, mode) {
+    const agent = clientAgents[0];
+    const s = store.loadSettlement();
+    const recording = loadRecordedSettlement();
+    const record = store.load().invoices[agent.client_id];
+    const owed = record ? Math.round((record.total - record.paid) * 100) / 100 : null;
+    const want = phase === "audit" ? recording?.assumes?.invoice_total : recording?.assumes?.owed_after_answer;
+    const fits = Boolean(recording?.phases?.[phase]) && owed === want;
+    let notice = "";
+    let live = phase === "audit" ? mode === "live" : s.mode === "live";
+    if (live && !hasClaudeKey()) {
+      live = false;
+      notice = "No Anthropic key on this server, so this is the recorded run.";
+    } else if (live && phase === "audit" && liveSettlements >= LIVE_SETTLEMENTS) {
+      live = false;
+      notice = "This server has used its live runs, so this is the recorded run.";
+    }
+    if (!live && !fits) {
+      if (!recording?.phases?.[phase]) throw new settle.AgentError("There is no recorded run, and this server can't run Claude live.");
+      throw new settle.AgentError(
+        phase === "audit"
+          ? `The recorded run starts from a ${money(want)} invoice, with Robert Okafor not billed. This one is ${money(owed || 0)}: run it live, or reset the demo and choose "Don't bill" for Robert Okafor.`
+          : `The recorded run assumes you credited the disputed line, leaving ${money(want)} owed. Now ${money(owed || 0)} is owed, so the recording doesn't fit.`,
+      );
+    }
+    return { agent, live, notice, recording };
+  }
+
+  async function runSettlementPhase(phase, { agent, live: useLive, notice, recording }, baseUrl) {
+    store.updateSettlement((x) => {
+      if (phase === "audit") Object.assign(x, { client_id: agent.client_id, mode: useLive ? "live" : "recorded", steps: [], messages: [], phases_done: [], usage: null });
+      x.running = phase;
+      x.notice = notice;
+      x.steps.push({ at: new Date().toISOString(), who: "system", text: phase === "audit" ? `${agent.name} connects to PayTally's MCP server as ${agent.client_name} (${useLive ? "live Claude" : "recorded Claude run; every tool call runs for real"}).` : `${agent.name} picks the invoice back up.` });
+    });
+    const onStep = (step) => settlementStep(agent.client_id, { who: "client_agent", ...step });
+    const url = `${baseUrl}/mcp`;
+    const started = Date.now();
+    try {
+      if (useLive) {
+        liveSettlements += 1;
+        const out = await runClientPhase({ url, agent, phase, history: store.loadSettlement().messages, onStep });
+        store.updateSettlement((x) => {
+          x.messages = out.messages;
+          x.model = out.model;
+          x.usage = out.usage;
+          x.phase_seconds = { ...(x.phase_seconds || {}), [phase]: Math.round((Date.now() - started) / 1000) };
+        });
+      } else {
+        await replayClientPhase({ url, agent, recording: recording.phases[phase], onStep });
+        store.updateSettlement((x) => (x.model = recording.model));
+      }
+      store.updateSettlement((x) => x.phases_done.push(phase));
+    } catch (err) {
+      settlementStep(agent.client_id, { who: "system", text: `The client's agent stopped: ${err.message}` });
+      const state = store.load();
+      store.log(state, `The client's agent stopped: ${err.message}`, "error");
+      store.save(state);
+    } finally {
+      store.updateSettlement((x) => (x.running = null));
+    }
+  }
+
+  app.post("/api/settlement/:phase", (req, res) => {
+    const phase = req.params.phase === "start" ? "audit" : req.params.phase === "resume" ? "settle" : null;
+    if (!phase) return res.status(404).json({ error: "No such step." });
+    const blocker = settlementBlocker(phase, clientAgents[0]);
+    if (blocker) return res.status(409).json({ error: blocker });
+    let plan;
+    try {
+      plan = planSettlement(phase, req.body?.mode === "live" ? "live" : "recorded");
+    } catch (err) {
+      return res.status(409).json({ error: err.message });
+    }
+    // The client's agent reaches this same server over HTTP, like any outside agent.
+    const baseUrl = `http://127.0.0.1:${req.socket.localPort}`;
+    store.updateSettlement((x) => (x.running = phase));
+    runSettlementPhase(phase, plan, baseUrl).catch((err) => console.error(`Settlement failed: ${err.message}`));
+    res.json({ ok: true, live: plan.live, notice: plan.notice });
+  });
 
   // Demo only: the client's reply arrives after their invoice is sent.
   app.post("/api/replies/:id/arrive", (req, res) => {
@@ -415,7 +761,7 @@ export function createApp({
     };
     state.threads[reply.id] = thread;
     store.log(state, `Email from ${reply.from.replace(/ <.*/, "")} (${client.name}) about invoice ${record.number}: "${reply.subject}".`);
-    const rec = recordedDraft(reply.id, collect.invoiceView(record), loadSources());
+    const rec = recordedDraft(thread, collect.invoiceView(record), loadSources());
     if (rec) attachDraft(state, thread, rec.draft, { kind: "recorded", model: rec.model, at: rec.recorded_at, score: rec.score });
     store.save(state);
     res.json({ ok: true });
@@ -425,9 +771,9 @@ export function createApp({
 
   // "Draft live with Claude". Any failure falls back to the recorded draft.
   app.post("/api/replies/:id/draft", async (req, res) => {
-    const reply = clientReplies.find((r) => r.id === req.params.id);
     const before = store.load();
     const thread = before.threads[req.params.id];
+    const reply = thread && replyFor(thread);
     if (!reply || !thread) return res.status(404).json({ error: "No such reply." });
     if (thread.status !== "open") return res.status(409).json({ error: "This reply is already answered." });
     const sources = loadSources();
@@ -444,7 +790,7 @@ export function createApp({
           replyInFlight.set(thread.id, draftReply({ agency, client, invoice: view, sources, reply }).finally(() => replyInFlight.delete(thread.id)));
         }
         out = await replyInFlight.get(thread.id);
-        const problem = draftProblem(out.draft, view, sources);
+        const problem = draftProblem(out.draft, view, sources) || (thread.line_key && out.draft.line_key !== thread.line_key ? "The draft is about a different line than the dispute." : "");
         if (problem) throw new Error(problem);
         out = { ...out, seconds: Math.round((Date.now() - started) / 1000) };
       } catch (err) {
@@ -457,10 +803,10 @@ export function createApp({
     const current = state.threads[thread.id];
     if (current?.status !== "open") return res.status(409).json({ error: "This reply was answered meanwhile." });
     if (out) {
-      attachDraft(state, current, out.draft, { kind: "live", model: out.model, at: new Date().toISOString(), seconds: out.seconds, score: scoreDraft(out.draft, reply.expected, view) });
+      attachDraft(state, current, out.draft, { kind: "live", model: out.model, at: new Date().toISOString(), seconds: out.seconds, score: reply.expected ? scoreDraft(out.draft, reply.expected, view) : null });
     } else {
       store.log(state, notice, "error");
-      const rec = recordedDraft(thread.id, view, sources);
+      const rec = recordedDraft(current, view, sources);
       if (rec) attachDraft(state, current, rec.draft, { kind: "recorded", model: rec.model, at: rec.recorded_at, score: rec.score });
     }
     store.save(state);
@@ -488,6 +834,7 @@ export function createApp({
       thread.status = "answered";
       thread.answer = { decision, text, at, by: owner };
       store.log(state, `${owner} replied to ${who}: the charge for ${line?.item || "the line"} stands.`, "owner");
+      if (thread.channel === "agent") settlementStep(thread.client_id, { who: "owner", text: `${owner} (agency owner) kept the charge for ${line?.item || "the line"} and sent the evidence.` });
       store.save(state);
       return res.json({ ok: true });
     }
@@ -499,40 +846,75 @@ export function createApp({
       return res.status(409).json({ error: "The credit changed since you reviewed it. Review again." });
     }
     const credit = { decision: "credit", ref: `reply ${thread.id}`, note: "", at };
+    const answered = (s) => {
+      const t = s.threads[thread.id];
+      t.status = "answered";
+      t.answer = { decision, text, at, by: owner, credit: preview.amount, how: preview.how };
+      store.log(s, `${owner} replied to ${who}.`, "owner");
+      if (t.channel === "agent") {
+        settlementStep(t.client_id, { who: "owner", text: `${owner} (agency owner) credited ${preview.item}: ${money(preview.amount)} off. ${preview.how === "refund" ? "PayPal refunds it." : "PayPal cancels the invoice and sends a corrected one."}` });
+      }
+    };
     try {
       if (preview.how === "refund") {
-        const refund = { kind: "refund", invoice_id: record.paypal_id, amount: preview.amount, currency: agency.currency };
-        await paypal.recordRefund(refund, issueApproval(refund, { approvedBy: owner }));
+        // Paid through PayPal: PayPal returns the money from the original capture.
+        const capture = (record.payments || []).at(-1);
+        const refund = { kind: "refund", invoice_id: record.paypal_id, amount: preview.amount, currency: agency.currency, capture_id: capture?.capture_id || null, note: `Credit for ${preview.item}, after your reply.`, request_id: `refund-${thread.id}` };
+        const approval = issueApproval(refund, { approvedBy: owner });
         record.awaiting = { what: "refund", at };
-        state.resolutions[preview.line_key] = credit;
-        rebuild(state, sources);
-        store.log(state, `${owner} credited ${preview.item} (${money(preview.amount)}). PayPal recorded the refund on invoice ${record.number}.`, "owner");
+        store.save(state);
+        let out;
+        try {
+          out = await paypal.refundPayment(refund, approval);
+        } catch (err) {
+          const s = store.load();
+          collect.findRecord(s, record.paypal_id).awaiting = null;
+          store.save(s);
+          throw err;
+        }
+        const s = store.load();
+        const fresh = collect.findRecord(s, record.paypal_id);
+        (fresh.refunds ||= []).push({ refund_id: out.refund_id, capture_id: refund.capture_id, amount: preview.amount, at, moved_money: out.moved_money });
+        s.resolutions[preview.line_key] = credit;
+        rebuild(s, sources);
+        store.log(
+          s,
+          out.moved_money
+            ? `${owner} credited ${preview.item} (${money(preview.amount)}). PayPal refunded it to ${thread.client_name} from capture ${refund.capture_id} (refund ${out.refund_id}) and the refund is noted on invoice ${record.number}.`
+            : `${owner} credited ${preview.item} (${money(preview.amount)}). PayPal noted the refund on invoice ${record.number} (that payment was made outside PayPal).`,
+          "owner",
+        );
+        answered(s);
+        store.save(s);
       } else {
         const cancel = { kind: "cancel", invoice_id: record.paypal_id, note: `Replaced by a corrected invoice: ${preview.item} is credited after your reply.` };
         await paypal.cancelSentInvoice(cancel, issueApproval(cancel, { approvedBy: owner }));
-        record.status = "CANCELLED";
-        delete state.invoices[record.client_id];
-        state.history.push(record);
-        state.resolutions[preview.line_key] = credit;
-        rebuild(state, sources);
-        store.log(state, `${owner} credited ${preview.item} (${money(preview.amount)}). PayPal cancelled invoice ${record.number}.`, "owner");
-        const draft = invoiceDraft(state.ledger, agency, record.client_id, { invoiceDate: paypal.today() });
+        const s = store.load();
+        const old = s.invoices[record.client_id];
+        old.status = "CANCELLED";
+        delete s.invoices[record.client_id];
+        s.history.push(old);
+        s.resolutions[preview.line_key] = credit;
+        rebuild(s, sources);
+        store.log(s, `${owner} credited ${preview.item} (${money(preview.amount)}). PayPal cancelled invoice ${record.number}.`, "owner");
+        const draft = invoiceDraft(s.ledger, agency, record.client_id, { invoiceDate: paypal.today() });
         draft.replaces = { id: record.paypal_id, number: record.number, why: `${preview.item} credited after your reply.` };
         if (draft.total !== preview.new_total) throw new Error("The corrected total does not match what you approved.");
         const approval = issueApproval(draft, { approvedBy: owner });
+        store.save(s);
         const invoice = await sendApproved(draft, approval);
+        const s2 = store.load();
         const next = collect.newRecord({ draft, invoice, approval, mode: paypal.mode });
-        record.replaced_by = next.paypal_id;
-        state.invoices[record.client_id] = next;
-        store.log(state, `PayPal (${paypal.mode}) corrected invoice ${invoice.number} for ${money(draft.total)} sent to ${draft.billing_email}, replacing ${record.number}.`, "paypal");
+        collect.findRecord(s2, record.paypal_id).replaced_by = next.paypal_id;
+        s2.invoices[record.client_id] = next;
+        store.log(s2, `PayPal (${paypal.mode}) corrected invoice ${invoice.number} for ${money(draft.total)} sent to ${draft.billing_email}, replacing ${record.number}.`, "paypal");
+        answered(s2);
+        store.save(s2);
+        if (thread.channel === "agent") settlementStep(record.client_id, { who: "paypal", text: `PayPal cancelled invoice ${record.number} and sent corrected invoice ${invoice.number} for ${money(draft.total)}.` });
       }
-      thread.status = "answered";
-      thread.answer = { decision, text, at, by: owner, credit: preview.amount, how: preview.how };
-      store.log(state, `${owner} replied to ${who}.`, "owner");
-      store.save(state);
       res.json({ ok: true });
     } catch (err) {
-      failed(res, state, err, "Applying the credit");
+      failed(res, store.load(), err, "Applying the credit");
     }
   });
 

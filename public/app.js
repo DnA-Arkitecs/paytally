@@ -167,6 +167,7 @@ function render() {
   renderWorklog();
   renderCollections();
   renderReplies();
+  renderSettlement();
   renderActivity();
   if (view.openKey) renderDrawer();
 }
@@ -258,6 +259,11 @@ function sentActions(c, r) {
   }
   if (thread) {
     buttons.push(h("button", { class: `btn${thread.status === "open" ? " warn" : ""}`, type: "button", onclick: () => switchTab("replies") }, thread.status === "open" ? "Answer the reply" : "See the reply"));
+  }
+  const agent = S.client_agents.find((a) => a.client_id === c.id);
+  if (agent) {
+    const waiting = agentThreads(agent).some((t) => t.status === "open") || pendingPayment(agent);
+    buttons.unshift(h("button", { class: `btn${waiting ? " warn" : ""}`, type: "button", title: `${agent.name} checks and pays this invoice over PayTally's MCP server.`, onclick: () => switchTab("agent") }, waiting ? "Agent needs you" : "Its AI agent"));
   }
   if (!buttons.length) buttons.push(h("button", { class: "btn", type: "button", disabled: true }, isPaid(r) ? "Paid" : "Invoice sent"));
   return h("div", { class: "card-actions" }, buttons);
@@ -616,7 +622,7 @@ function threadCard(t) {
         h("button", { type: "button", class: choice === "keep" ? "on" : "", onclick: () => choose("keep") }, `Keep the charge${d.recommend_credit ? "" : " · Claude's call"}`),
       ),
       box,
-      h("p", { class: "guard" }, `${consequence} This demo sends no email: the reply is kept with the thread.`),
+      h("p", { class: "guard" }, `${consequence} ${t.channel === "agent" ? "Your reply goes back to the client's agent over MCP." : "This demo sends no email: the reply is kept with the thread."}`),
       h("div", { class: "actions" }, liveBtn, send),
     ),
   );
@@ -650,6 +656,221 @@ function startPolling() {
       if (waiting().length) toast("No webhook from PayPal yet. Use Check PayPal on the Collections tab.", "error");
     }
   }, 2000);
+}
+
+// ---------- Client's AI agent: the two-agent settlement ----------
+const agentMeta = () => S.client_agents[0];
+const agentThreads = (a) => S.threads.filter((t) => t.channel === "agent" && t.client_id === a.client_id);
+const pendingPayment = (a) => S.payment_requests.find((p) => p.client_id === a.client_id && p.status === "awaiting_approval");
+const settlementBusy = () => Boolean(S.settlement.running) || S.payment_requests.some((p) => ["sending", "sent_to_paypal"].includes(p.status));
+
+const WHO = {
+  client_agent: (a) => ({ side: "left", label: a.name, cls: "client" }),
+  client_human: (a) => ({ side: "left", label: `${a.human} · ${a.client_name}`, cls: "human" }),
+  paytally: () => ({ side: "right", label: "PayTally", cls: "paytally" }),
+  owner: () => ({ side: "right", label: `${S.agency.owner} · agency owner`, cls: "human" }),
+  paypal: () => ({ side: "mid", label: "PayPal", cls: "paypal" }),
+  system: () => ({ side: "mid", label: "", cls: "system" }),
+};
+
+// Short arguments inline; long ones (a dispute's reason and evidence) open below.
+const callArgs = (input) => Object.values(input || {}).filter((v) => typeof v !== "object" && String(v).length <= 60).join(", ");
+const dollars = (n) => (Number.isInteger(n) ? `$${n.toLocaleString("en-US")}` : money(n));
+
+// The agent writes light Markdown: **bold** and "- " bullets. Built as nodes, never as HTML.
+function richText(text) {
+  const inline = (line) => line.split(/(\*\*[^*]+\*\*)/).map((part) => (part.startsWith("**") && part.endsWith("**") ? h("strong", {}, part.slice(2, -2)) : part));
+  const out = [];
+  let list = null;
+  for (const line of String(text).split("\n")) {
+    const bullet = line.match(/^\s*[-*] (.*)$/);
+    if (bullet) {
+      if (!list) out.push((list = h("ul", {})));
+      list.append(h("li", {}, inline(bullet[1])));
+      continue;
+    }
+    list = null;
+    if (line.trim()) out.push(h("p", {}, inline(line.replace(/^#+\s*/, ""))));
+  }
+  return out;
+}
+
+function stepItem(step, a) {
+  const who = (WHO[step.who] || WHO.system)(a);
+  if (step.kind === "call") {
+    const body = step.pending
+      ? h("span", { class: "muted small" }, " · waiting for PayTally")
+      : h(
+          "details",
+          { class: "call-result" },
+          h("summary", {}, step.is_error ? `PayTally refused: ${step.result?.error || "error"}` : "What PayTally returned"),
+          h("pre", {}, JSON.stringify(step.result, null, 2)),
+        );
+    const long = Object.values(step.input || {}).filter((v) => typeof v === "string" && v.length > 60);
+    return h(
+      "li",
+      { class: `step call ${who.side}${step.is_error ? " err" : ""}` },
+      h("div", { class: "call-line" }, h("span", { class: "tool" }, step.tool), h("span", { class: "args" }, `(${callArgs(step.input)})`), body),
+      long.length ? h("details", { class: "call-input" }, h("summary", {}, "What the agent sent"), h("pre", {}, long.join("\n\n"))) : null,
+    );
+  }
+  return h(
+    "li",
+    { class: `step say ${who.side} ${who.cls}` },
+    who.label ? h("p", { class: "who" }, who.label) : null,
+    h("div", { class: "text" }, step.who === "client_agent" ? richText(step.text) : step.text),
+  );
+}
+
+function settleAction(label, mode, primary = false) {
+  return h("button", {
+    class: `btn${primary ? " primary" : ""}`,
+    type: "button",
+    onclick: (e) => act(e.currentTarget, async () => {
+      const out = await api(`/api/settlement/${mode === "resume" ? "resume" : "start"}`, { mode });
+      if (out.notice) toast(out.notice, "error");
+      startSettlementPolling();
+    }),
+  }, label);
+}
+
+function paymentCard(a, p) {
+  const saved = S.client_agents.find((x) => x.client_id === a.client_id).saved_method;
+  const approve = h("button", { class: "btn primary", type: "button" }, `Approve ${money(p.amount)}`);
+  approve.addEventListener("click", () => act(approve, async () => {
+    await api(`/api/payments/${p.id}/approve`, { expected_amount: p.amount });
+    toast(`PayPal charged the saved card: ${money(p.amount)}. Waiting for PayPal's webhook.`);
+    startSettlementPolling();
+  }));
+  const decline = h("button", { class: "btn", type: "button", onclick: (e) => act(e.currentTarget, () => api(`/api/payments/${p.id}/decline`, {})) }, "Decline");
+  return h(
+    "div",
+    { class: "paycard" },
+    h("p", { class: "eyebrow" }, `${a.human} approves · ${a.client_name}`),
+    h("p", { class: "pay-amount" }, money(p.amount)),
+    h("p", {}, `to ${S.agency.name} · invoice ${p.invoice_number}`, saved ? ` · ${saved.brand} ending ${saved.last_digits}, saved in PayPal` : ""),
+    h("p", { class: "guard" }, `${a.name} asked for this after its dispute was answered. It is within the ${dollars(p.cap)} cap ${a.human} set. This approval is tied to this exact amount; PayPal charges the saved card only after the tap.`),
+    h("div", { class: "actions" }, decline, approve),
+  );
+}
+
+function renderSettlement() {
+  const a = agentMeta();
+  if (!a) return;
+  const s = S.settlement;
+  const inv = S.invoices[a.client_id];
+  const rec = inv && recordFor(inv.paypal_id);
+  const disputes = agentThreads(a);
+  const openDisputes = disputes.filter((t) => t.status === "open");
+  const pay = pendingPayment(a);
+  const paid = S.payment_requests.find((p) => p.client_id === a.client_id && p.status === "paid");
+  const done = s.phases_done || [];
+
+  // What the owner does next, in one place.
+  let next = null;
+  const flags = S.ledger?.lines.filter((l) => l.client_id === a.client_id && l.status === "flagged") || [];
+  if (!S.ledger) next = h("p", { class: "muted" }, "Read the work log first (top of the page).");
+  else if (!inv) {
+    next = h(
+      "div",
+      { class: "next" },
+      h("p", {}, flags.length
+        ? `First decide ${a.client_name}'s flagged line${flags.length > 1 ? "s" : ""}, then approve and send its invoice. (The recorded run starts with Robert Okafor not billed: ${a.human} showed he was their customer first.)`
+        : `Approve and send ${a.client_name}'s invoice; then its agent can check it.`),
+      flags.length
+        ? h("button", { class: "btn primary", type: "button", onclick: () => focusFlags(a.client_id) }, "Show the flagged line")
+        : h("button", { class: "btn primary", type: "button", onclick: () => openApprove(a.client_id) }, "Approve & send"),
+    );
+  } else if (s.running) {
+    next = h("p", { class: "working" }, s.running === "audit" ? `${a.name} is checking invoice ${rec?.number} against its records…` : `${a.name} is picking the invoice back up…`);
+  } else if (!done.includes("audit")) {
+    const recordedFits = s.recorded && s.assumes && Math.round((rec.total - rec.paid) * 100) / 100 === s.assumes.invoice_total;
+    next = h(
+      "div",
+      { class: "next" },
+      h("p", {}, `Invoice ${rec.number} (${money(rec.total)}) is with ${a.client_name}. Their agent checks it now, over MCP.`),
+      h("div", { class: "btn-row" },
+        S.modes.live ? settleAction("Run live with Claude", "live", !recordedFits) : null,
+        recordedFits ? settleAction(`${a.name} checks the invoice`, "recorded", true) : null,
+      ),
+      !recordedFits && !S.modes.live ? h("p", { class: "muted small" }, `The recorded run starts from a ${money(s.assumes?.invoice_total || 0)} invoice. Reset the demo and choose "Don't bill" for Robert Okafor.`) : null,
+    );
+  } else if (openDisputes.length) {
+    next = h("div", { class: "checkpoint" }, h("p", { class: "eyebrow" }, `Your call, ${S.agency.owner.split(" ")[0]}: the client's agent disputed a line`), ...openDisputes.map(threadCard));
+  } else if (!done.includes("settle")) {
+    next = h("div", { class: "next" }, h("p", {}, "Your answer went back to the agent over MCP."), settleAction(`${a.name} picks it back up`, "resume", true));
+  } else if (pay) {
+    next = paymentCard(a, pay);
+  } else if (paid) {
+    const credited = disputes.filter((t) => t.answer?.decision === "credit");
+    next = h(
+      "div",
+      { class: "settled" },
+      h("p", { class: "eyebrow" }, "Settled"),
+      h("p", { class: "big" }, `${money(paid.amount)} paid through PayPal`),
+      h("p", {}, `${disputes.length} dispute${disputes.length === 1 ? "" : "s"}, ${credited.length ? `${money(credited.reduce((n, t) => n + (t.answer.credit || 0), 0))} credited` : "no credit"}; capture ${paid.paypal?.capture_id || ""}. Two agents did the checking; two people approved the money.`),
+    );
+  } else if (S.payment_requests.some((p) => p.client_id === a.client_id && ["sending", "sent_to_paypal"].includes(p.status))) {
+    next = h("p", { class: "working" }, "PayPal is taking the payment; waiting for its webhook…");
+  }
+
+  $("#settle-head").replaceChildren(...[
+    h("h2", {}, `${a.client_name}'s own AI agent settles its invoice`),
+    h("p", { class: "lede" }, `${a.client_name} runs its own agent (Claude), with its own instructions, its own field log and a ${dollars(a.cap)} cap. Over PayTally's MCP server it reads the invoice, asks for the proof behind any line, disputes what its records contradict, and asks to pay through PayPal. It can't change a price or move money: a credit waits for ${S.agency.owner}, a payment for ${a.human}.`),
+    s.notice ? h("p", { class: "guard" }, s.notice) : null,
+    s.steps.length ? h("p", { class: "muted small" }, s.mode === "live" ? `Live Claude run${s.model ? ` (${s.model})` : ""}.` : `Recorded Claude run (${s.recorded_model || s.model}): the agent's words and choices are replayed; every tool call, the owner's answer and the PayPal payment happen for real.`) : null,
+  ].filter(Boolean));
+  $("#settle-steps").replaceChildren(...s.steps.map((x) => stepItem(x, a)));
+  $("#settle-checkpoint").replaceChildren(next || "");
+
+  const url = `${location.origin}${S.mcp.path}`;
+  const cmd = `claude mcp add --transport http paytally ${url} --header "Authorization: Bearer ${a.token}"`;
+  const saved = a.saved_method;
+  $("#settle-side").replaceChildren(...[
+    h(
+      "div",
+      { class: "side-card" },
+      h("p", { class: "eyebrow" }, `${a.client_name}'s side`),
+      h("h3", {}, a.name),
+      h("p", { class: "muted small" }, `Answers to ${a.human}, ${a.human_role}. Cap: ${dollars(a.cap)} per invoice.`),
+      h("ol", { class: "terms-list" }, a.instructions.map((t) => h("li", {}, t))),
+      saved ? h("p", { class: "saved" }, `${saved.brand} ending ${saved.last_digits} saved in PayPal Vault (${saved.mode}, PayPal test card)`) : null,
+      h("details", { class: "records" }, h("summary", {}, `${a.records_label}. PayTally never sees it.`), h("ul", {}, a.records.map((r) => h("li", {}, r)))),
+    ),
+    h(
+      "div",
+      { class: "side-card" },
+      h("p", { class: "eyebrow" }, "Connect your own agent"),
+      h("p", { class: "small" }, "Any MCP client can do what this agent does. In Claude Code:"),
+      h("pre", { class: "cmd" }, cmd),
+      h("button", { class: "btn small", type: "button", onclick: () => navigator.clipboard.writeText(cmd).then(() => toast("Copied.")) }, "Copy"),
+      h("ul", { class: "tools" }, S.mcp.tools.map((t) => h("li", {}, h("code", {}, t.name), ` ${t.title}`))),
+    ),
+    S.mcp.log.length
+      ? h(
+          "div",
+          { class: "side-card" },
+          h("p", { class: "eyebrow" }, "MCP calls PayTally received"),
+          h("ol", { class: "mcp-log" }, S.mcp.log.slice(0, 14).map((m) => h("li", { class: m.ok ? "" : "err" }, h("span", { class: "when" }, stamp(m.at)), h("code", {}, m.tool), m.ok ? "" : h("span", { class: "small" }, ` refused: ${m.error}`)))),
+        )
+      : null,
+  ].filter(Boolean));
+  const waiting = openDisputes.length + (pay ? 1 : 0);
+  $('.tab[data-tab="agent"]').replaceChildren("Client's AI agent", waiting ? h("span", { class: "count" }, waiting) : "");
+}
+
+// While the client's agent works or PayPal's webhook is on its way.
+let settleTimer = null;
+function startSettlementPolling() {
+  if (settleTimer) return;
+  const started = Date.now();
+  settleTimer = setInterval(async () => {
+    await refresh();
+    if (!settlementBusy() || Date.now() - started > 300000) {
+      clearInterval(settleTimer);
+      settleTimer = null;
+    }
+  }, 1200);
 }
 
 // ---------- Work log and activity ----------
@@ -743,4 +964,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   await refresh();
   if (S.collections.some((r) => r.awaiting)) startPolling();
+  if (settlementBusy()) startSettlementPolling();
 });

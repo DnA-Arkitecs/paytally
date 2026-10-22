@@ -36,6 +36,8 @@ export function newRecord({ draft, invoice, approval, mode, kind = "current" }) 
     paid_at: null,
     paid_via: "",
     reminders: [],
+    payments: [],
+    refunds: [],
     awaiting: null,
     replaces: draft.replaces?.id || null,
     replaced_by: null,
@@ -68,11 +70,21 @@ export function reminderFor(record, agency, today) {
   };
 }
 
+// Which invoice a PayPal event is about: invoice events name it; a capture
+// carries the invoice id in custom_id; a refund links back to its capture.
+export function recordForEvent(state, event) {
+  const r = event.resource || {};
+  if (event.event_type.startsWith("INVOICING.")) return findRecord(state, r.invoice?.id);
+  if (event.event_type === "PAYMENT.CAPTURE.COMPLETED") return findRecord(state, r.custom_id);
+  const captureId = (r.links || []).find((l) => l.rel === "up")?.href?.split("/").pop();
+  return allRecords(state).find((rec) => rec.payments?.some((p) => p.capture_id === captureId)) || null;
+}
+
 // Applies one PayPal webhook event. Returns the activity line, or "" when the
 // event is a repeat or is about an invoice this app does not track.
 export function applyEvent(state, event, via) {
   const inv = event.resource?.invoice || {};
-  const record = findRecord(state, inv.id);
+  const record = recordForEvent(state, event);
   if (!record || state.seen_events.includes(event.id)) return "";
   state.seen_events = [event.id, ...state.seen_events].slice(0, 200);
   const label = `${record.client_name} invoice ${record.number}`;
@@ -92,6 +104,10 @@ export function applyEvent(state, event, via) {
       record.refunded = Number(inv.refunds?.refund_amount?.value ?? record.refunded);
       record.awaiting = null;
       return `${via}: ${label} refund of ${money(record.refunded)} recorded.`;
+    case "PAYMENT.CAPTURE.COMPLETED":
+      return `${via}: PayPal captured ${money(Number(event.resource.amount?.value || 0))} for ${label} (capture ${event.resource.id}). The money moved.`;
+    case "PAYMENT.CAPTURE.REFUNDED":
+      return `${via}: PayPal refunded ${money(Number(event.resource.amount?.value || 0))} to ${record.client_name} on ${label} (refund ${event.resource.id}). The money moved back.`;
     default:
       return "";
   }

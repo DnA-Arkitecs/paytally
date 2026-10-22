@@ -8,7 +8,7 @@ import path from "node:path";
 import { DATA_DIR, loadAgency, loadSources } from "../src/sources.js";
 import { loadRecordedRun, extractFromAnswerKey } from "../src/extract.js";
 import { buildLedger, invoiceDraft } from "../src/ledger.js";
-import { loadClientReplies, draftReplyWithClaude, draftProblem, scoreDraft } from "../src/replies.js";
+import { loadClientReplies, loadRecordedDrafts, draftReplyWithClaude, draftProblem, scoreDraft } from "../src/replies.js";
 
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error("Set ANTHROPIC_API_KEY first.");
@@ -49,7 +49,8 @@ console.log(`\nDrafts matching the hand-checked answers: ${ok}/${replies.length}
 if (process.argv.includes("--save")) {
   const recorded = {
     _note: "Real Claude drafts for the demo's client replies, saved so the demo works without live API credit. Regenerate with: npm run eval:replies -- --save",
-    drafts,
+    // Keeps other saved rulings (the agent dispute in eval-settlement.js).
+    drafts: { ...loadRecordedDrafts(), ...drafts },
   };
   fs.writeFileSync(path.join(DATA_DIR, "recorded-replies.json"), `${JSON.stringify(recorded, null, 2)}\n`);
   console.log("Saved data/recorded-replies.json");

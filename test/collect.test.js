@@ -75,7 +75,7 @@ test("reminders, refunds and cancellations need the owner's approval of that exa
   const reminder = { kind: "reminder", invoice_id: "INV2-X", subject: "s", note: "n" };
   await assert.rejects(paypal.sendInvoiceReminder(reminder), /owner's approval/);
   await assert.rejects(paypal.sendInvoiceReminder({ ...reminder, note: "changed" }, issueApproval(reminder, { approvedBy: "x" })), /changed after it was approved/);
-  await assert.rejects(paypal.recordRefund({ kind: "refund", invoice_id: "INV2-X", amount: 5, currency: "USD" }), /owner's approval/);
+  await assert.rejects(paypal.refundPayment({ kind: "refund", invoice_id: "INV2-X", amount: 5, currency: "USD" }), /owner's approval/);
   await assert.rejects(paypal.cancelSentInvoice({ kind: "cancel", invoice_id: "INV2-X", note: "n" }), /owner's approval/);
 });
 

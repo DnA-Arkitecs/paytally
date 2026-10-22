@@ -40,7 +40,7 @@ const SYSTEM_PROMPT = `You help the owner of a lead-generation agency answer cli
 How to judge:
 - log_supports_charge: the rows and the terms show the charge is right, and the client's point doesn't change that.
 - log_supports_client: the rows or the terms show the client is right.
-- log_cannot_settle: the rows don't show what happened (for example, a status with nothing to back it) and the client is reporting something only they would know. Weigh what the terms say about such reports.
+- log_cannot_settle: the rows don't show what happened (for example, a status with nothing to back it) and the client is reporting something only they would know. Weigh what the terms say about such reports. The work log holds the calendar, the CRM and emails to the billing inbox; a call or a text to the agency's people is not in it, so its absence from the log proves nothing either way. A bare calendar status does not outweigh a specific, dated account from the client; when you lean on the client's account, tell the owner what to check (for example, their texts that day).
 - Recommend a credit when the client is right, or when the log can't settle it and the terms favour the client's account. Otherwise recommend keeping the charge.
 - Cite only refs that appear in the work log, plus "terms" for the agreement. Never claim a row says something it doesn't.
 

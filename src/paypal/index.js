@@ -1,12 +1,15 @@
-// The only door to PayPal. Every call that reaches a client (an invoice, a
-// reminder, a cancellation, a refund) first checks the owner's approval of that
-// exact action. In the sandbox the calls go through the PayPal Agent Toolkit's
-// invoicing tools (sandbox.js); otherwise a local stand-in answers (mock.js).
+// The only door to PayPal. Every call that reaches a client or moves money (an
+// invoice, a reminder, a cancellation, a refund, a payment) first checks a
+// human's approval of that exact action: the owner's, or for a payment, the
+// client's. In the sandbox, invoicing goes through the PayPal Agent Toolkit's
+// tools (sandbox.js) and money through Orders, Vault and Payments
+// (payments.js); otherwise a local stand-in answers (mock.js).
 //
 // PayPal stays mocked until PAYPAL_MODE=sandbox and both sandbox keys are set.
 import { assertApproved } from "../approvals.js";
 import * as mock from "./mock.js";
 import * as sandbox from "./sandbox.js";
+import * as payments from "./payments.js";
 
 export const mode =
   process.env.PAYPAL_MODE === "sandbox" && process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET
@@ -14,6 +17,8 @@ export const mode =
     : "mock";
 
 const impl = mode === "sandbox" ? sandbox : mock;
+const money = mode === "sandbox" ? payments : mock;
+export const { TEST_CARDS } = payments;
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
@@ -66,25 +71,70 @@ export async function cancelSentInvoice(cancel, approval) {
   return impl.cancelSentInvoice(cancel.invoice_id, { note: cancel.note, send_to_recipient: true });
 }
 
-// refund: { kind: "refund", invoice_id, amount, currency }
-export async function recordRefund(refund, approval) {
+// refund: { kind: "refund", invoice_id, amount, currency, capture_id, note, request_id }
+// When the invoice was paid through PayPal (capture_id), PayPal returns the
+// money to the client (Payments v2 refund) and the refund is then noted on the
+// invoice. A payment recorded outside PayPal can only have its refund noted.
+export async function refundPayment(refund, approval) {
   assertApproved(refund, approval);
-  return impl.recordRefund(refund.invoice_id, {
-    method: "BANK_TRANSFER",
+  const moved = refund.capture_id
+    ? await money.refundCapture(refund.capture_id, { amount: refund.amount, currency: refund.currency, note: refund.note || "Credit after your question about the invoice.", request_id: refund.request_id })
+    : null;
+  await impl.recordRefund(refund.invoice_id, {
+    method: moved ? "PAYPAL" : "BANK_TRANSFER",
     refund_date: today(),
     amount: { currency_code: refund.currency, value: refund.amount.toFixed(2) },
   });
+  return { refund_id: moved?.refund_id || null, moved_money: Boolean(moved) };
 }
 
-// Demo only: stands in for the client paying. PayPal records the payment and
-// then sends its own "invoice paid" webhook, which is what marks it paid here.
-export async function recordTestPayment(invoiceId, amount, currency) {
-  return impl.recordPayment(invoiceId, {
-    method: "BANK_TRANSFER",
+// The client's own one-time setup: their card saved in PayPal Vault, so a
+// payment they approve later needs no checkout. Returns the vault id.
+export async function saveCard(card) {
+  return money.saveCard(card);
+}
+
+// The payment is then recorded on the PayPal invoice, which makes PayPal send
+// its "invoice paid" webhook; that webhook is what marks the invoice paid here.
+async function recordOnInvoice(invoiceId, amount, currency, paid) {
+  await impl.recordPayment(invoiceId, {
+    method: "PAYPAL",
     payment_date: today(),
     amount: { currency_code: currency, value: amount.toFixed(2) },
-    note: "PayTally demo: test payment recorded in the PayPal sandbox.",
+    note: `Paid through PayPal, capture ${paid.capture_id}.`,
   });
+  return paid;
+}
+
+// payment: { kind: "payment", invoice_id, number, amount, currency, vault_id, request_id }
+// The client's human approved this exact payment. PayPal charges the client's
+// saved payment method (Orders v2, captured at once).
+export async function payInvoice(payment, approval) {
+  assertApproved(payment, approval);
+  const paid = await money.charge({
+    amount: payment.amount,
+    currency: payment.currency,
+    custom_id: payment.invoice_id,
+    invoice_id: `PT-${payment.number}-${payment.request_id}`,
+    description: `Invoice ${payment.number}`,
+    vault_id: payment.vault_id,
+    request_id: payment.request_id,
+  });
+  return recordOnInvoice(payment.invoice_id, payment.amount, payment.currency, paid);
+}
+
+// Demo only: stands in for a client paying an invoice by card themselves.
+// PayPal takes a real sandbox payment from one of its published test cards.
+export async function payWithTestCard(invoiceId, number, amount, currency) {
+  const paid = await money.charge({
+    amount,
+    currency,
+    custom_id: invoiceId,
+    invoice_id: `PT-${number}-${Date.now()}`,
+    description: `Invoice ${number}`,
+    card: { ...TEST_CARDS.default, name: "PayTally demo client" },
+  });
+  return recordOnInvoice(invoiceId, amount, currency, paid);
 }
 
 export async function getInvoice(invoiceId) {
