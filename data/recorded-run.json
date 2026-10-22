@@ -1,0 +1,791 @@
+{
+  "_note": "A real Claude run over data/raw, saved so the demo works without live API credit. Regenerate with: npm run eval -- --save",
+  "model": "claude-opus-5-5",
+  "recorded_at": "2026-10-22T20:11:04.398Z",
+  "seconds": 71,
+  "usage": {
+    "input_tokens": 21,
+    "output_tokens": 9724,
+    "cache_read_input_tokens": 0
+  },
+  "source_hash": "da33229aaf3c7d55",
+  "score": {
+    "matching": 39,
+    "of": 40,
+    "misses": [
+      "calendar:7 Priya Natarajan: want harbor-pine/no_show, got harbor-pine/unknown/flag"
+    ],
+    "extra": []
+  },
+  "extraction": {
+    "items": [
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Hannah Price",
+        "date": "2026-10-01",
+        "time": "17:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:3"
+        ],
+        "evidence": "The in-home consultation with Hannah Price on Oct 1 at 5:00 PM is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Dana Whitfield",
+        "date": "2026-10-02",
+        "time": "10:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:4"
+        ],
+        "evidence": "The roof estimate call with Dana Whitfield on Oct 2 at 10:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Marcus Bell",
+        "date": "2026-10-03",
+        "time": "14:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:5"
+        ],
+        "evidence": "The call with Marcus Bell on Oct 3 at 2:00 PM has no status, but its note says it went well and he wants a quote.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Jorge Alvarez",
+        "date": "2026-10-04",
+        "time": "10:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:6"
+        ],
+        "evidence": "The in-home consultation with Jorge Alvarez on Oct 4 at 10:00 AM is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Priya Natarajan",
+        "date": "2026-10-06",
+        "time": "09:30",
+        "outcome": "unknown",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:7"
+        ],
+        "evidence": "The call with Priya Natarajan on Oct 6 at 9:30 AM is marked Completed but carries the note \"NS\".",
+        "unclear": "The Completed status conflicts with the \"NS\" note, which may mean no-show, and Harbor & Pine sent no email about it."
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Keisha Grant",
+        "date": "2026-10-07",
+        "time": "18:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:8"
+        ],
+        "evidence": "The in-home consultation with Keisha Grant on Oct 7 at 18:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Tom Ellery",
+        "date": "2026-10-08",
+        "time": "13:00",
+        "outcome": "rescheduled",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:9",
+          "calendar:15"
+        ],
+        "evidence": "The Oct 8 1:00 PM call with Tom Ellery is marked Rescheduled and was moved to Oct 14 at the same time.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Grace Lin",
+        "date": "2026-10-09",
+        "time": "11:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:10"
+        ],
+        "evidence": "The call with Grace Lin on Oct 9 at 11:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Owen Fischer",
+        "date": "2026-10-10",
+        "time": "11:00",
+        "outcome": "no_show",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "2026-10-11T09:05",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:12",
+          "email:E2"
+        ],
+        "evidence": "The calendar notes Owen Fischer's Oct 10 11:00 AM consultation as a no show, and Carla reported the no-show by email on Oct 11 at 09:05.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Bianca Rossi",
+        "date": "2026-10-12",
+        "time": "15:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:14"
+        ],
+        "evidence": "The in-home consultation with Bianca Rossi on Oct 12 at 3:00 PM is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Tom Ellery",
+        "date": "2026-10-14",
+        "time": "13:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:15",
+          "calendar:9"
+        ],
+        "evidence": "The rescheduled call with Tom Ellery on Oct 14 at 13:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Caleb Turner",
+        "date": "2026-10-15",
+        "time": "17:30",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:16"
+        ],
+        "evidence": "The in-home consultation with Caleb Turner on Oct 15 at 5:30 PM is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Luis Ortega",
+        "date": "2026-10-16",
+        "time": "15:00",
+        "outcome": "no_show",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "2026-10-17T08:12",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:17",
+          "email:E1"
+        ],
+        "evidence": "The Oct 16 3:00 PM call with Luis Ortega is marked Completed, but Jordan reported on Oct 17 at 08:12 that he never showed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Imani Scott",
+        "date": "2026-10-17",
+        "time": "10:00",
+        "outcome": "no_show",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "2026-10-22T16:40",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:18",
+          "email:E3"
+        ],
+        "evidence": "The Oct 17 10:00 consultation with Imani Scott is marked Completed, but Carla reported on Oct 22 at 16:40 that she did not show up.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Derek Huang",
+        "date": "2026-10-18",
+        "time": "12:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:19"
+        ],
+        "evidence": "The in-home consultation with Derek Huang on Oct 18 at 12:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Ava Brooks",
+        "date": "2026-10-20",
+        "time": "10:00",
+        "outcome": "cancelled_by_client",
+        "cancelled_at": "2026-10-19T18:10",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:21"
+        ],
+        "evidence": "The Oct 20 10:00 AM call with Ava Brooks is marked Cancelled, with a note that Harbor & Pine cancelled on Oct 19 at 6:10 PM due to a crew conflict.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Robert Okafor",
+        "date": "2026-10-21",
+        "time": "16:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "E5",
+        "dispute_claim": "Mesa Ridge says Robert Okafor got a quote from them in August before talking to the agency, so he is their lead and should be removed.",
+        "sources": [
+          "calendar:22",
+          "email:E5"
+        ],
+        "evidence": "The in-home consultation with Robert Okafor on Oct 21 at 4:00 PM is marked Completed, and Carla disputes it by email.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Noah Kim",
+        "date": "2026-10-23",
+        "time": "16:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:23"
+        ],
+        "evidence": "The call with Noah Kim on Oct 23 at 16:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Lena Moretti",
+        "date": "2026-10-24",
+        "time": "11:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:24"
+        ],
+        "evidence": "The in-home consultation with Lena Moretti on Oct 24 at 11:00 AM is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Victor Osei",
+        "date": "2026-10-27",
+        "time": "14:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:25"
+        ],
+        "evidence": "The in-home consultation with Victor Osei on Oct 27 at 14:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Sofia Reyes",
+        "date": "2026-10-28",
+        "time": "11:30",
+        "outcome": "unknown",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:26",
+          "email:E6"
+        ],
+        "evidence": "The Oct 28 11:30 AM call with Sofia Reyes is marked Tentative, and Jordan wrote that he was not sure their rep made it because his truck broke down.",
+        "unclear": "The status is only Tentative and Harbor & Pine said it would check whether the call happened, but it has not followed up."
+      },
+      {
+        "client_id": "mesa-ridge",
+        "kind": "appointment",
+        "person": "Mei Tanaka",
+        "date": "2026-10-29",
+        "time": "18:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:27"
+        ],
+        "evidence": "The in-home consultation with Mei Tanaka on Oct 29 at 18:00 is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "harbor-pine",
+        "kind": "appointment",
+        "person": "Ethan Cole",
+        "date": "2026-10-30",
+        "time": "09:00",
+        "outcome": "held",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "calendar:29"
+        ],
+        "evidence": "The call with Ethan Cole on Oct 30 at 9:00 AM is marked Completed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Amelia Hart",
+        "date": "2026-10-01",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:2"
+        ],
+        "evidence": "Lead C-1001 is marked Qualified with Delta insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Ben Carter",
+        "date": "2026-10-02",
+        "time": "",
+        "outcome": "unqualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:3"
+        ],
+        "evidence": "Lead C-1002 is marked Unqualified because he lives in Tucson, out of area.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Chloe Diaz",
+        "date": "2026-10-03",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:4"
+        ],
+        "evidence": "Lead C-1003 is marked Qualified with budget confirmed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Daniel Evans",
+        "date": "2026-10-05",
+        "time": "",
+        "outcome": "unknown",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:5"
+        ],
+        "evidence": "Lead C-1004 is marked Qualified, but its insurance or budget field is blank.",
+        "unclear": "Cobalt's definition requires insurance or a budget to be confirmed, and the row records neither."
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Amelia Hart",
+        "date": "2026-10-06",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "crm:2",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:6",
+          "crm:2"
+        ],
+        "evidence": "Lead C-1005 is marked Qualified with the same email as C-1001 in different capitalization, and is noted as a second form submission.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Farah Haddad",
+        "date": "2026-10-08",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:7"
+        ],
+        "evidence": "Lead C-1006 is marked Qualified with Cigna insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Gavin Brooks",
+        "date": "2026-10-09",
+        "time": "",
+        "outcome": "not_reviewed",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:8"
+        ],
+        "evidence": "Lead C-1007 is still at stage New, meaning the studio has not reviewed it.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Hailey Monroe",
+        "date": "2026-10-11",
+        "time": "",
+        "outcome": "unknown",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "E7",
+        "dispute_claim": "Dr. Morgan is not sure a whitening-only inquiry counts as a new-patient lead and wants to talk before it is billed.",
+        "sources": [
+          "crm:9",
+          "email:E7"
+        ],
+        "evidence": "Lead C-1008 is marked \"Qualified?\" with Cash and a note saying whitening only, check if it counts.",
+        "unclear": "The stage is marked with a question mark and the studio questions whether a whitening-only cash inquiry meets its new-patient definition."
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Isaac Romero",
+        "date": "2026-10-13",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:10"
+        ],
+        "evidence": "Lead C-1009 is marked Qualified with Aetna insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Jasmine Wu",
+        "date": "2026-10-14",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:11"
+        ],
+        "evidence": "Lead C-1010 is marked qualified with MetLife insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Kevin Patel",
+        "date": "2026-10-16",
+        "time": "",
+        "outcome": "unqualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:12"
+        ],
+        "evidence": "Lead C-1011 is marked Unqualified as an existing patient.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Laura Chen",
+        "date": "2026-10-18",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:13"
+        ],
+        "evidence": "Lead C-1012 is marked Qualified with budget confirmed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Mason Reed",
+        "date": "2026-10-20",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:14"
+        ],
+        "evidence": "Lead C-1013 is marked Qualified with Delta insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Nina Alvarez",
+        "date": "2026-10-22",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:15"
+        ],
+        "evidence": "Lead C-1014 is marked Qualified with Guardian insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Paige Sullivan",
+        "date": "2026-10-25",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:17"
+        ],
+        "evidence": "Lead C-1016 is marked Qualified with budget confirmed.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Quinn Foster",
+        "date": "2026-10-27",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:18"
+        ],
+        "evidence": "Lead C-1017 is marked Qualified with Aetna insurance.",
+        "unclear": ""
+      },
+      {
+        "client_id": "cobalt-dental",
+        "kind": "lead",
+        "person": "Rosa Delgado",
+        "date": "2026-10-29",
+        "time": "",
+        "outcome": "qualified",
+        "cancelled_at": "",
+        "duplicate_of": "",
+        "no_show_reported_at": "",
+        "dispute_email": "",
+        "dispute_claim": "",
+        "sources": [
+          "crm:19"
+        ],
+        "evidence": "Lead C-1018 is marked Qualified with no insurance but cash pay and budget ok.",
+        "unclear": ""
+      }
+    ],
+    "ignored": [
+      {
+        "source": "calendar:2",
+        "why": "Internal team standup."
+      },
+      {
+        "source": "calendar:11",
+        "why": "Sync duplicate of calendar:10 (same Grace Lin call)."
+      },
+      {
+        "source": "calendar:13",
+        "why": "Test entry."
+      },
+      {
+        "source": "calendar:20",
+        "why": "Agency check-in meeting with Cobalt Dental, not a lead or appointment."
+      },
+      {
+        "source": "calendar:28",
+        "why": "Internal team standup."
+      },
+      {
+        "source": "calendar:30",
+        "why": "Internal lunch with accountant."
+      },
+      {
+        "source": "calendar:31",
+        "why": "September 30 call outside the billing period, already billed in September."
+      },
+      {
+        "source": "crm:16",
+        "why": "Lead created 2026-09-29, outside the billing period."
+      },
+      {
+        "source": "email:E4",
+        "why": "Agency's own mid-month preview to Mesa Ridge; nothing new about what happened."
+      }
+    ]
+  }
+}

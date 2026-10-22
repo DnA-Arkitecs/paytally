@@ -115,6 +115,20 @@ export function extractFromAnswerKey(dataDir = DATA_DIR) {
   return checkShape({ items: key.items, ignored: key.ignored });
 }
 
+// A real Claude run saved by `npm run eval -- --save`. The hosted demo shows it
+// by default, so it works with no live API credit. Null when there is none, or
+// when the work log changed since it was recorded.
+export function loadRecordedRun(sourceHash, dataDir = DATA_DIR) {
+  let run;
+  try {
+    run = JSON.parse(fs.readFileSync(path.join(dataDir, "recorded-run.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  if (run.source_hash !== sourceHash) return null;
+  return { ...run, extraction: checkShape(run.extraction) };
+}
+
 export async function extractWithClaude({ agency, sources, client = new Anthropic() }) {
   const stream = client.beta.messages.stream({
     model: MODEL,
@@ -157,6 +171,7 @@ export async function extractWithClaude({ agency, sources, client = new Anthropi
     usage: {
       input_tokens: message.usage.input_tokens,
       output_tokens: message.usage.output_tokens,
+      cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
     },
   };

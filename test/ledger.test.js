@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadAgency, loadSources } from "../src/sources.js";
-import { extractFromAnswerKey } from "../src/extract.js";
+import { extractFromAnswerKey, loadRecordedRun } from "../src/extract.js";
 import { buildLedger, invoiceDraft } from "../src/ledger.js";
+import { scoreExtraction } from "../src/score.js";
 
 const agency = loadAgency();
 const sources = loadSources();
@@ -80,6 +81,13 @@ test("rows the agent skips or invents become flags, not charges", () => {
   const dana = ledger.lines.filter((l) => l.person === "Dana Whitfield");
   assert.equal(dana.length, 2);
   assert.match(dana[1].flag, /already on another line/);
+});
+
+test("the recorded Claude run matches this work log, accounts for every row, and its score is current", () => {
+  const run = loadRecordedRun(sources.hash);
+  assert.ok(run, "data/recorded-run.json must exist and match data/raw");
+  assert.deepEqual(scoreExtraction(run.extraction, extractFromAnswerKey()), run.score);
+  assert.equal(build({}, run.extraction).unassigned_flags, 0);
 });
 
 test("the invoice draft carries only billed lines", () => {

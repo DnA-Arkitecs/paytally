@@ -29,7 +29,10 @@
         <p>PayTally reads this month's messy work log (calendar, CRM, client emails), applies each client's terms, and drafts invoices where every line says why it is there and which row it came from. Nothing goes to PayPal until you approve it.</p>
       </div>
       <div class="intro-actions">
-        <button id="build" class="btn primary" type="button">Read the work log</button>
+        <div class="btn-row">
+          <button id="build-live" class="btn" type="button" hidden>Run live with Claude</button>
+          <button id="build" class="btn primary" type="button">Read the work log</button>
+        </div>
         <span id="build-note" class="muted small"></span>
       </div>
     </section>

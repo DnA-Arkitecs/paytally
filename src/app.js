@@ -5,7 +5,8 @@ import * as store from "./store.js";
 import * as paypal from "./paypal/index.js";
 import * as mockPaypal from "./paypal/mock.js";
 import { loadAgency, loadSources } from "./sources.js";
-import { MODEL, extractFromAnswerKey, extractWithClaude } from "./extract.js";
+import { MODEL, extractFromAnswerKey, extractWithClaude, loadRecordedRun } from "./extract.js";
+import { scoreExtraction } from "./score.js";
 import { buildLedger, invoiceDraft } from "./ledger.js";
 import { issueApproval, ApprovalError } from "./approvals.js";
 
@@ -36,7 +37,7 @@ export function createApp({ extract = extractWithClaude, hasClaudeKey = () => Bo
     res.json({
       agency: { name: agency.agency.name, owner: agency.agency.owner, period: agency.period },
       clients: agency.clients.map(({ id, name, summary, terms_text, billing_email }) => ({ id, name, summary, terms_text, billing_email })),
-      modes: { extractor: hasClaudeKey() ? "claude" : "answer_key", model: MODEL, paypal: paypal.mode },
+      modes: { live: hasClaudeKey(), recorded: Boolean(loadRecordedRun(sources.hash)), model: MODEL, paypal: paypal.mode },
       ledger: state.ledger,
       invoices: state.invoices,
       activity: state.activity,
@@ -49,41 +50,90 @@ export function createApp({ extract = extractWithClaude, hasClaudeKey = () => Bo
     });
   });
 
-  // Read the work log and build the ledger. Claude is called only when the log
-  // changed or the owner asks for a fresh read; otherwise the last read is reused.
-  app.post("/api/build", async (req, res) => {
-    const state = store.load();
-    const sources = loadSources();
-    const fresh = Boolean(req.body?.fresh);
-    try {
-      if (hasClaudeKey()) {
-        const cached = state.extraction?.meta?.kind === "claude" && state.extraction.meta.source_hash === sources.hash;
-        if (!cached || fresh) {
-          const started = Date.now();
-          const out = await extract({ agency, sources });
-          state.extraction = {
-            data: out.extraction,
-            meta: { kind: "claude", model: out.model, usage: out.usage, seconds: Math.round((Date.now() - started) / 1000), at: new Date().toISOString(), source_hash: sources.hash },
-          };
-          store.log(state, `Claude (${out.model}) read ${sources.refs.length} rows and emails in ${state.extraction.meta.seconds}s.`, "agent");
-        }
-      } else {
-        state.extraction = {
-          data: extractFromAnswerKey(),
-          meta: { kind: "answer_key", at: new Date().toISOString(), source_hash: sources.hash },
-        };
-        store.log(state, "No Anthropic key set: built the ledger from the hand-checked answer key.", "agent");
-      }
-      rebuild(state, sources);
-      const flags = state.ledger.lines.filter((l) => l.status === "flagged").length;
-      store.log(state, `Ledger built: ${state.ledger.lines.length} lines, ${flags} need your decision.`);
-      store.save(state);
-      res.json({ ok: true });
-    } catch (err) {
-      store.log(state, `Ledger build failed: ${err.message}`, "error");
-      store.save(state);
-      res.status(502).json({ error: err.message });
+  // Where the ledger's reading of the log comes from:
+  //   "recorded" (default) — a real Claude run saved with the repo, so the demo
+  //     always works, even with no live API credit; the answer key if none exists.
+  //   "live" — a fresh Claude call. Any failure falls back to the recorded run.
+  // A live result is reused for 10 minutes, and only one live call runs at a time.
+  const LIVE_REUSE_MS = 10 * 60 * 1000;
+  let liveInFlight = null;
+
+  function offlineExtraction(sources) {
+    const run = loadRecordedRun(sources.hash);
+    if (run) {
+      return {
+        data: run.extraction,
+        meta: { kind: "recorded", model: run.model, at: run.recorded_at, seconds: run.seconds, score: run.score, source_hash: sources.hash },
+      };
     }
+    return { data: extractFromAnswerKey(), meta: { kind: "answer_key", at: new Date().toISOString(), source_hash: sources.hash } };
+  }
+
+  async function liveExtraction(last, sources) {
+    if (last && last.meta.source_hash === sources.hash && Date.now() - Date.parse(last.meta.at) < LIVE_REUSE_MS) {
+      return { ...last, reused: true };
+    }
+    liveInFlight ||= (async () => {
+      const started = Date.now();
+      const out = await extract({ agency, sources });
+      return {
+        data: out.extraction,
+        meta: {
+          kind: "live",
+          model: out.model,
+          usage: out.usage,
+          seconds: Math.round((Date.now() - started) / 1000),
+          at: new Date().toISOString(),
+          score: scoreExtraction(out.extraction, extractFromAnswerKey()),
+          source_hash: sources.hash,
+        },
+      };
+    })().finally(() => {
+      liveInFlight = null;
+    });
+    return liveInFlight;
+  }
+
+  app.post("/api/build", async (req, res) => {
+    const sources = loadSources();
+    let extraction = null;
+    let notice = "";
+    if (req.body?.mode === "live") {
+      if (!hasClaudeKey()) {
+        notice = "No Anthropic key on this server, so this is the recorded run.";
+      } else {
+        try {
+          extraction = await liveExtraction(store.load().live, sources);
+        } catch (err) {
+          notice = `The live Claude run failed (${err.message}), so this is the recorded run.`;
+        }
+      }
+    }
+    // Load state after the (slow) live call so decisions made meanwhile are kept.
+    const state = store.load();
+    const score = (m) => `${m.score.matching} of ${m.score.of} items match the hand-checked answer key`;
+    if (extraction) {
+      if (!extraction.reused) {
+        state.live = { data: extraction.data, meta: extraction.meta };
+        store.log(state, `Claude (${extraction.meta.model}) read ${sources.refs.length} rows and emails live in ${extraction.meta.seconds}s; ${score(extraction.meta)}.`, "agent");
+      }
+    } else {
+      extraction = offlineExtraction(sources);
+      if (notice) store.log(state, notice, "error");
+      store.log(
+        state,
+        extraction.meta.kind === "recorded"
+          ? `Loaded the recorded Claude run (${extraction.meta.model}, ${extraction.meta.at.slice(0, 10)}); ${score(extraction.meta)}.`
+          : "No recorded run for this work log: built the ledger from the hand-checked answer key.",
+        "agent",
+      );
+    }
+    state.extraction = { data: extraction.data, meta: extraction.meta };
+    rebuild(state, sources);
+    const flags = state.ledger.lines.filter((l) => l.status === "flagged").length;
+    store.log(state, `Ledger built: ${state.ledger.lines.length} lines, ${flags} need your decision.`);
+    store.save(state);
+    res.json({ ok: true, kind: extraction.meta.kind, fallback: Boolean(notice), notice });
   });
 
   // The owner's decision on a flagged line. Prices are recomputed by the terms engine.

@@ -42,9 +42,14 @@ test("PayPal refuses anything without an owner approval", async () => {
 
 test("build, resolve, approve: the only path to PayPal", async () => {
   assert.equal(paypal.mode, "mock");
-  assert.equal((await post("/api/build")).status, 200);
-  await post("/api/build");
-  assert.equal(claudeCalls, 1, "an unchanged log is not re-read");
+  const recorded = await post("/api/build");
+  assert.equal(recorded.status, 200);
+  assert.equal(recorded.body.kind, "recorded");
+  assert.equal(claudeCalls, 0, "the default build makes no Claude call");
+  const live = await post("/api/build", { mode: "live" });
+  assert.equal(live.body.kind, "live");
+  await post("/api/build", { mode: "live" });
+  assert.equal(claudeCalls, 1, "a live run from minutes ago is reused");
 
   let s = await state();
   const hp = s.ledger.clients.find((c) => c.id === "harbor-pine");

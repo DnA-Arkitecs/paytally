@@ -1,10 +1,13 @@
 // Scores Claude's reading of the work log against the hand-checked answer key.
-// Needs ANTHROPIC_API_KEY. Each run is one Claude call (about $0.25 at current prices).
-//   npm run eval
-import { loadAgency, loadSources } from "../src/sources.js";
+// Needs ANTHROPIC_API_KEY. Each run is one Claude call (about $0.30 at list prices).
+//   npm run eval               score only
+//   npm run eval -- --save     also save the run as data/recorded-run.json, the demo's default
+import fs from "node:fs";
+import path from "node:path";
+import { DATA_DIR, loadAgency, loadSources } from "../src/sources.js";
 import { extractWithClaude, extractFromAnswerKey } from "../src/extract.js";
 import { buildLedger } from "../src/ledger.js";
-import { primarySource } from "../src/terms.js";
+import { scoreExtraction } from "../src/score.js";
 
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error("Set ANTHROPIC_API_KEY first.");
@@ -16,27 +19,29 @@ const sources = loadSources();
 const key = extractFromAnswerKey();
 const started = Date.now();
 const { extraction, model, usage } = await extractWithClaude({ agency, sources });
-
-const byRow = (items) => new Map(items.map((i) => [primarySource(i), i]));
-const want = byRow(key.items);
-const got = byRow(extraction.items);
-const flagged = (i) => Boolean(i.unclear || i.dispute_email);
-
-let match = 0;
-const misses = [];
-for (const [row, w] of want) {
-  const g = got.get(row);
-  const same = g && g.client_id === w.client_id && g.outcome === w.outcome && Boolean(g.duplicate_of) === Boolean(w.duplicate_of) && flagged(g) === flagged(w);
-  if (same) match += 1;
-  else misses.push(`${row} ${w.person}: want ${w.client_id}/${w.outcome}${flagged(w) ? "/flag" : ""}, got ${g ? `${g.client_id}/${g.outcome}${flagged(g) ? "/flag" : ""}` : "nothing"}`);
-}
-const extra = [...got.keys()].filter((row) => !want.has(row));
+const seconds = Math.round((Date.now() - started) / 1000);
+const score = scoreExtraction(extraction, key);
 
 const totals = (x) => buildLedger({ agency, extraction: x, sources, extractor: {} }).clients.map((c) => `${c.id} $${c.total} (${c.open_flags} flags)`).join(", ");
 
-console.log(`Model: ${model} · ${Math.round((Date.now() - started) / 1000)}s · tokens in ${usage.input_tokens}, out ${usage.output_tokens}`);
-console.log(`Items matching the answer key: ${match}/${want.size}`);
-if (misses.length) console.log(`Misses:\n  ${misses.join("\n  ")}`);
-if (extra.length) console.log(`Items not in the answer key: ${extra.join(", ")}`);
+if (process.argv.includes("--save")) {
+  const recorded = {
+    _note: "A real Claude run over data/raw, saved so the demo works without live API credit. Regenerate with: npm run eval -- --save",
+    model,
+    recorded_at: new Date().toISOString(),
+    seconds,
+    usage,
+    source_hash: sources.hash,
+    score,
+    extraction,
+  };
+  fs.writeFileSync(path.join(DATA_DIR, "recorded-run.json"), `${JSON.stringify(recorded, null, 2)}\n`);
+  console.log("Saved data/recorded-run.json");
+}
+
+console.log(`Model: ${model} · ${seconds}s · tokens: ${JSON.stringify(usage)}`);
+console.log(`Items matching the answer key: ${score.matching}/${score.of}`);
+if (score.misses.length) console.log(`Misses:\n  ${score.misses.join("\n  ")}`);
+if (score.extra.length) console.log(`Items not in the answer key: ${score.extra.join(", ")}`);
 console.log(`Answer key ledger: ${totals(key)}`);
 console.log(`Claude ledger:     ${totals(extraction)}`);

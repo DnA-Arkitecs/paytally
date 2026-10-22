@@ -84,7 +84,7 @@ function initGrid() {
     getRowId: (p) => p.data.key,
     defaultColDef: { sortable: true, resizable: true, suppressMovable: true },
     columnDefs: [
-      { headerName: "Status", field: "status", width: 150, cellRenderer: statusCell },
+      { headerName: "Status", field: "status", width: 172, cellRenderer: statusCell },
       { headerName: "Client", field: "client_name", width: 170, wrapText: true, autoHeight: true },
       { headerName: "Date", field: "date", width: 84, valueFormatter: (p) => shortDate(p.value) },
       { headerName: "Line", field: "item", flex: 1.1, minWidth: 190, wrapText: true, autoHeight: true },
@@ -127,15 +127,15 @@ function render() {
   $("#period").textContent = S.agency.period.label;
 
   const ext = S.ledger?.extractor;
+  const kind = ext?.kind || (S.modes.recorded ? "recorded" : "answer_key");
   const agent = $("#badge-agent");
-  if (S.modes.extractor === "claude") {
-    agent.textContent = "Agent: Claude Opus 5.5";
-    agent.className = "badge live";
-  } else {
-    agent.textContent = "Agent: offline answer key";
-    agent.className = "badge offline";
-    agent.title = "No Anthropic key is set, so the ledger is built from the hand-checked answer key.";
-  }
+  agent.textContent = { live: "Agent: Claude Opus 5.5 · live", recorded: "Agent: Claude Opus 5.5 · recorded run", answer_key: "Agent: offline answer key" }[kind];
+  agent.className = `badge ${kind === "answer_key" ? "offline" : "live"}`;
+  agent.title = {
+    live: "This ledger comes from a Claude call made just now.",
+    recorded: "This ledger comes from a real Claude run saved with the demo, so it works without live API credit.",
+    answer_key: "No recorded Claude run matches this work log, so the ledger comes from the hand-checked answer key.",
+  }[kind];
   const pp = $("#badge-paypal");
   pp.textContent = S.modes.paypal === "sandbox" ? "PayPal: sandbox" : "PayPal: mock";
   pp.className = `badge ${S.modes.paypal === "sandbox" ? "live" : "offline"}`;
@@ -149,7 +149,7 @@ function render() {
   const open = S.ledger ? S.ledger.lines.filter((l) => l.status === "flagged").length : 0;
   $('.tab[data-tab="ledger"]').replaceChildren("Ledger", open ? h("span", { class: "count" }, open) : "");
   $("#ignored-note").textContent = S.ledger
-    ? `${S.ledger.ignored.length} rows left out on purpose (internal meetings, a test event, a sync duplicate, rows outside ${S.agency.period.label}). See them in Work log.`
+    ? `${S.ledger.ignored.length} rows and emails left out on purpose, each with a reason. See them in Work log.`
     : "";
 
   renderWorklog();
@@ -158,27 +158,31 @@ function render() {
 }
 
 function renderIntro(ext) {
-  const intro = $("#intro");
-  const btn = $("#build");
-  const note = $("#build-note");
-  intro.classList.toggle("compact", Boolean(S.ledger));
+  $("#intro").classList.toggle("compact", Boolean(S.ledger));
   if (view.building) return;
-  btn.classList.remove("busy");
-  btn.disabled = false;
+  const btn = $("#build");
+  const live = $("#build-live");
+  const note = $("#build-note");
+  btn.disabled = live.disabled = false;
+  live.hidden = !S.modes.live;
+  live.textContent = ext?.kind === "live" ? "Run live again" : "Run live with Claude";
   if (!S.ledger) {
     btn.textContent = "Read the work log";
     btn.className = "btn primary";
-    note.textContent = S.modes.extractor === "claude" ? "Claude reads 55 rows and emails, about a minute." : "Uses the hand-checked answer key until an Anthropic key is set.";
+    live.className = "btn";
+    note.textContent = S.modes.recorded
+      ? `Shows a recorded Claude run instantly${S.modes.live ? "; or run Claude live, about a minute." : "."}`
+      : "Uses the hand-checked answer key.";
     return;
   }
-  btn.textContent = "Read it again";
-  btn.className = "btn";
-  if (ext?.kind === "claude") {
-    const tokens = ext.usage ? `${Math.round((ext.usage.input_tokens + ext.usage.output_tokens) / 100) / 10}k tokens` : "";
-    note.textContent = `Read by ${ext.model} in ${ext.seconds}s · ${tokens} · ${stamp(ext.at)}`;
-  } else {
-    note.textContent = `Built from the answer key · ${stamp(S.ledger.built_at)}`;
-  }
+  btn.textContent = ext?.kind === "live" ? "Back to recorded run" : "Read it again";
+  btn.className = live.className = "btn";
+  const score = ext?.score ? ` · ${ext.score.matching} of ${ext.score.of} items match the hand-checked answer key` : "";
+  note.textContent = {
+    live: `Live Claude run, ${ext.seconds}s, ${stamp(ext.at)}${score}`,
+    recorded: `Recorded Claude run (${ext.model}, ${shortDate(ext.at?.slice(0, 10))})${score}`,
+    answer_key: `Built from the hand-checked answer key · ${stamp(S.ledger.built_at)}`,
+  }[ext?.kind] || "";
 }
 
 function renderCards() {
@@ -423,28 +427,32 @@ async function refresh() {
   render();
 }
 
-async function build() {
-  const btn = $("#build");
+async function build(mode) {
+  const btn = mode === "live" ? $("#build-live") : $("#build");
   view.building = true;
-  btn.disabled = true;
+  $("#build").disabled = $("#build-live").disabled = true;
   btn.classList.add("busy");
-  btn.textContent = S.modes.extractor === "claude" ? "Claude is reading the log" : "Reading the log";
+  btn.textContent = mode === "live" ? "Claude is reading the log" : "Reading the log";
   try {
-    await api("/api/build", { fresh: Boolean(S.ledger) });
+    const out = await api("/api/build", { mode });
     view.building = false;
     await refresh();
     const flags = S.ledger.lines.filter((l) => l.status === "flagged").length;
-    toast(`Ledger ready: ${S.ledger.lines.length} lines, ${flags} need your decision.`);
+    if (out.fallback) toast(out.notice, "error");
+    else toast(`Ledger ready: ${S.ledger.lines.length} lines, ${flags} need your decision.`);
   } catch (e) {
     view.building = false;
     toast(e.message, "error");
     await refresh();
+  } finally {
+    btn.classList.remove("busy");
   }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   initGrid();
-  $("#build").addEventListener("click", build);
+  $("#build").addEventListener("click", () => build("recorded"));
+  $("#build-live").addEventListener("click", () => build("live"));
   $("#flags-only").addEventListener("change", (e) => { view.flagsOnly = e.target.checked; grid.onFilterChanged(); });
   $("#search").addEventListener("input", (e) => grid.setGridOption("quickFilterText", e.target.value));
   $("#scrim").addEventListener("click", closeDrawer);

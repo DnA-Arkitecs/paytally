@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 export const VAR_DIR = process.env.PAYTALLY_VAR_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "var");
 const FILE = path.join(VAR_DIR, "state.json");
 
-const empty = () => ({ extraction: null, resolutions: {}, ledger: null, invoices: {}, activity: [] });
+const empty = () => ({ extraction: null, live: null, resolutions: {}, ledger: null, invoices: {}, activity: [] });
 
 export function load() {
   try {
