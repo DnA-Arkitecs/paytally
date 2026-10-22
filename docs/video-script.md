@@ -2,7 +2,7 @@
 
 For Richman to voice over a screen recording of the hosted demo. About 390 spoken words at an easy pace. Every claim about him and his business comes from his fact bank (sources at the bottom); every company, person and amount on screen is invented demo data.
 
-**Before recording:** open the hosted link, wait for it to wake (up to a minute), click **Reset demo**, and record at 1920×1080 with the browser at 110% zoom. Say the numbers that are on screen if they differ from the ones below.
+**Before recording:** open the hosted link, wait for it to wake (up to a minute), click **Reset demo**, decide every flagged line before approving (Mesa Ridge's Robert Okafor: **D**, don't bill, so its invoice is $2,100), and record at 1920×1080 with the browser at 110% zoom. Say the numbers that are on screen if they differ from the ones below.
 
 | Time | On screen | Voice |
 |---|---|---|

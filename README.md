@@ -6,7 +6,9 @@
 
 Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (2026).
 
-![Ledger review screen](docs/ledger-week1.png)
+![The ledger, grouped by client, with flagged lines waiting on the owner](docs/hosted-ledger.jpg)
+
+![Mesa Ridge's own AI agent, its mandate and its $2,000 cap](docs/hosted-agent-tab.jpg)
 
 ## Why
 
