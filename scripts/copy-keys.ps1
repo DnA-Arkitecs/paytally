@@ -43,6 +43,7 @@ foreach ($n in $names) {
 }
 $form.Controls.Add($status)
 
+$form.Add_Shown({ $form.Activate() })
 [void]$form.ShowDialog()
 [System.Windows.Forms.Clipboard]::Clear()
 $form.Dispose()
