@@ -118,15 +118,17 @@ export function createApp({
   const STUDIO_TURNS = Number(process.env.PAYTALLY_STUDIO_TURNS ?? 80);
   let studioTurns = 0;
   let studioClaude = null;
+  // Once the key is refused or out of credit, the dashboard loads without the assistant.
+  let studioOff = false;
 
   app.get("/api/studio/config", (req, res) => {
-    res.json({ license_key: process.env.AG_STUDIO || null, ai: hasClaudeKey() && studioTurns < STUDIO_TURNS, model: MODEL });
+    res.json({ license_key: process.env.AG_STUDIO || null, ai: hasClaudeKey() && !studioOff && studioTurns < STUDIO_TURNS, model: MODEL });
   });
 
   app.post("/api/studio/claude", express.json({ limit: "4mb" }), async (req, res) => {
     const { system, messages, tools, tool_choice } = req.body || {};
     if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "messages is required." } });
-    if (!hasClaudeKey()) return res.status(503).json({ error: { message: "No Anthropic key on this server, so the assistant is off." } });
+    if (!hasClaudeKey() || studioOff) return res.status(503).json({ error: { message: "The assistant is off on this server." } });
     if (studioTurns >= STUDIO_TURNS) return res.status(429).json({ error: { message: "This demo server has used its assistant turns." } });
     studioTurns += 1;
     const controller = new AbortController();
@@ -150,6 +152,7 @@ export function createApp({
       res.end();
     } catch (err) {
       if (controller.signal.aborted) return;
+      if (err.status === 401 || err.status === 403 || /credit balance/i.test(err.message || "")) studioOff = true;
       if (!res.headersSent) return res.status(502).json({ error: { message: err.message } });
       res.write(`data: ${JSON.stringify({ type: "error", error: { message: err.message } })}\n\n`);
       res.end();
