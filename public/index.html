@@ -42,6 +42,8 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" role="tab" data-tab="ledger" type="button">Ledger</button>
       <button class="tab" role="tab" data-tab="log" type="button">Work log</button>
+      <button class="tab" role="tab" data-tab="collections" type="button">Collections</button>
+      <button class="tab" role="tab" data-tab="replies" type="button">Client replies</button>
       <button class="tab" role="tab" data-tab="activity" type="button">Activity</button>
     </nav>
 
@@ -58,6 +60,18 @@
     <section id="tab-log" class="tabpanel" hidden>
       <p class="muted small">The raw inputs, exactly as exported. Each row shows the ledger line it became, or why it was left out.</p>
       <div id="worklog" class="worklog"></div>
+    </section>
+
+    <section id="tab-collections" class="tabpanel" hidden>
+      <div class="toolbar">
+        <p id="collections-note" class="muted small grow"></p>
+        <button id="check-paypal" class="btn" type="button">Check PayPal now</button>
+      </div>
+      <div id="collections"></div>
+    </section>
+
+    <section id="tab-replies" class="tabpanel" hidden>
+      <div id="threads" class="threads"></div>
     </section>
 
     <section id="tab-activity" class="tabpanel" hidden>

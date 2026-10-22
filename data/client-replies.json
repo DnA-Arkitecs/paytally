@@ -1,0 +1,29 @@
+{
+  "_note": "Invented client replies that arrive after an invoice is sent. \"arrives\" is when in the demo: after the client pays (a credit becomes a refund) or while the invoice is unpaid (a credit becomes a corrected invoice). \"expected\" is the hand-checked answer used to score Claude's draft (npm run eval:replies).",
+  "replies": [
+    {
+      "id": "R1",
+      "client_id": "harbor-pine",
+      "arrives": "paid",
+      "from": "Jordan Avery <jordan@harborpine.example.com>",
+      "subject": "Re: Lanternfish Leads: October 2026 invoice",
+      "body": "Hi Sam,\n\nPaid the October invoice, but one line is wrong: Ethan Cole on Oct 30. Our estimator called him at 9:00 sharp and twice more by 9:20 and never got an answer, so that was a no-show, and no-shows are free under our deal. Please take it off.\n\nJordan",
+      "expected": {
+        "person": "Ethan Cole",
+        "recommend_credit": true
+      }
+    },
+    {
+      "id": "R2",
+      "client_id": "cobalt-dental",
+      "arrives": "unpaid",
+      "from": "Dr. Alex Morgan <dr.morgan@cobaltdental.example.com>",
+      "subject": "Re: Lanternfish Leads: October 2026 invoice",
+      "body": "Hi Sam,\n\nBefore we pay this: why is Rosa Delgado on it? She has no insurance, she's paying cash. I thought we only pay for qualified leads.\n\nAlex",
+      "expected": {
+        "person": "Rosa Delgado",
+        "recommend_credit": false
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@
     "end": "2026-10-31"
   },
   "currency": "USD",
+  "payment_due_days": 15,
   "clients": [
     {
       "id": "harbor-pine",

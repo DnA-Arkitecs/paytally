@@ -86,10 +86,23 @@ function commonFlags(line, item, proposed) {
   return null;
 }
 
-// The owner's click on a flagged line overrides the flag, and says so.
+// The owner's click on a flagged line overrides the flag, and says so. A credit,
+// approved after a client disputes a sent invoice, can also take a billed line off.
 function applyResolution(line, resolution) {
-  if (!resolution || line.status !== "flagged") return line;
+  if (!resolution) return line;
   const note = resolution.note ? ` Note: ${resolution.note}` : "";
+  if (resolution.decision === "credit") {
+    if (line.status === "no_charge") return line;
+    const credited = line.status === "flagged" ? line.proposed_amount : line.amount;
+    line.resolution = resolution;
+    line.flag = "";
+    line.status = "no_charge";
+    line.amount = 0;
+    line.proposed_amount = credited;
+    line.reason = `You credited this line (${money(credited)}) after ${line.client_name} disputed it (${resolution.ref}).${note}`;
+    return line;
+  }
+  if (line.status !== "flagged") return line;
   line.resolution = resolution;
   line.flag = "";
   if (resolution.decision === "bill") {
@@ -115,7 +128,7 @@ function perHeldCall(client, items, resolutions) {
     if (item.duplicate_of) return free(line, `Duplicate of ${item.duplicate_of}: each call is billed once (§1).`);
     switch (item.outcome) {
       case "held":
-        return bill(line, t.rate, `Call took place: ${money(t.rate)} per booked call (§1).`);
+        return resolve(bill(line, t.rate, `Call took place: ${money(t.rate)} per booked call (§1).`));
       case "no_show":
         return free(line, "No-show: free (§2).", t.rate);
       case "rescheduled":
@@ -128,7 +141,7 @@ function perHeldCall(client, items, resolutions) {
         if (at == null || start == null) return resolve(flag(line, t.rate, `${client.name} cancelled, but when is not recorded; §4 depends on it.`));
         const ahead = hoursBetween(at, start);
         return ahead < t.late_cancel_hours
-          ? bill(line, t.rate, `${client.name} cancelled ${ahead} hours ahead, under ${t.late_cancel_hours} hours: billed (§4).`)
+          ? resolve(bill(line, t.rate, `${client.name} cancelled ${ahead} hours ahead, under ${t.late_cancel_hours} hours: billed (§4).`))
           : free(line, `${client.name} cancelled ${ahead} hours ahead: free (§4).`, t.rate);
       }
       default:
@@ -163,7 +176,7 @@ function retainerPlusPerLead(client, items, resolutions, period) {
     if (item.duplicate_of) return free(line, `Same person as ${item.duplicate_of}: counts once a month (§3).`, t.rate);
     switch (item.outcome) {
       case "qualified":
-        return bill(line, t.rate, `Qualified, with insurance or budget confirmed: ${money(t.rate)} (§2).`);
+        return resolve(bill(line, t.rate, `Qualified, with insurance or budget confirmed: ${money(t.rate)} (§2).`));
       case "unqualified":
         return free(line, "Marked Unqualified: not billed (§4).", t.rate);
       case "not_reviewed":
@@ -198,7 +211,7 @@ function tieredPerHeldWithReportWindow(client, items, resolutions) {
     if (item.duplicate_of) return free(line, `Duplicate of ${item.duplicate_of}: each consultation is billed once (§1).`);
     switch (item.outcome) {
       case "held":
-        return take(bill(line, p.price, `Consultation took place, ${p.label} (§1).`));
+        return resolve(bill(line, p.price, `Consultation took place, ${p.label} (§1).`));
       case "no_show": {
         const start = wallClock(item.date, item.time);
         const reported = item.no_show_reported_at && wallClock(item.no_show_reported_at);
@@ -208,7 +221,7 @@ function tieredPerHeldWithReportWindow(client, items, resolutions) {
         const after = hoursBetween(start, reported);
         return after <= t.report_window_hours
           ? free(line, `No-show reported ${after} hours after the appointment, within ${t.report_window_hours} hours: free (§2).`, p.price)
-          : take(bill(line, p.price, `No-show reported ${after} hours after the appointment, past the ${t.report_window_hours}-hour window: billed as the ${p.label} (§2).`));
+          : resolve(bill(line, p.price, `No-show reported ${after} hours after the appointment, past the ${t.report_window_hours}-hour window: billed as the ${p.label} (§2).`));
       }
       case "cancelled_by_client":
       case "cancelled_by_prospect":

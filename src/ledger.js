@@ -97,8 +97,11 @@ export function buildLedger({ agency, extraction, sources, resolutions = {}, ext
   };
 }
 
+const addDays = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+
 // What goes to PayPal: only billed lines, in a fixed shape the approval hashes.
-export function invoiceDraft(ledger, agency, clientId) {
+// Payment is due a set number of days after the invoice date (agency terms).
+export function invoiceDraft(ledger, agency, clientId, { invoiceDate = new Date().toISOString().slice(0, 10) } = {}) {
   const client = agency.clients.find((c) => c.id === clientId);
   const lines = ledger.lines
     .filter((l) => l.client_id === clientId && l.status === "bill" && l.amount > 0)
@@ -113,5 +116,7 @@ export function invoiceDraft(ledger, agency, clientId) {
     currency: agency.currency,
     lines,
     total: lines.reduce((s, l) => s + l.amount, 0),
+    invoice_date: invoiceDate,
+    due_date: addDays(invoiceDate, agency.payment_due_days),
   };
 }

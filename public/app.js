@@ -4,6 +4,7 @@ const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 const money = (n) => currency.format(n || 0);
 const shortDate = (d) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "");
 const stamp = (iso) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
 // Tiny element builder: h("div", { class: "x", onclick }, "text", child)
 function h(tag, attrs = {}, ...children) {
@@ -20,7 +21,7 @@ function h(tag, attrs = {}, ...children) {
 
 let S = null;
 let grid = null;
-const view = { client: "all", flagsOnly: false, openKey: null, tab: "ledger", building: false };
+const view = { client: "all", flagsOnly: false, openKey: null, tab: "ledger", building: false, replyChoice: {}, replyText: {} };
 
 async function api(path, body) {
   const init = body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
@@ -139,6 +140,12 @@ function render() {
   const pp = $("#badge-paypal");
   pp.textContent = S.modes.paypal === "sandbox" ? "PayPal: sandbox" : "PayPal: mock";
   pp.className = `badge ${S.modes.paypal === "sandbox" ? "live" : "offline"}`;
+  pp.title = {
+    ready: "Invoices go through the PayPal Agent Toolkit to the PayPal sandbox; PayPal's webhooks reach this server.",
+    registering: "Invoices go to the PayPal sandbox; the webhook is being registered.",
+    none: "Invoices go to the PayPal sandbox. No public URL, so no webhooks: use Check PayPal on the Collections tab.",
+    mock: "PayPal is mocked: nothing real is sent.",
+  }[S.modes.webhook];
 
   renderIntro(ext);
   renderCards();
@@ -152,7 +159,14 @@ function render() {
     ? `${S.ledger.ignored.length} rows and emails left out on purpose, each with a reason. See them in Work log.`
     : "";
 
+  const overdue = S.collections.filter((r) => r.days_overdue > 0).length;
+  $('.tab[data-tab="collections"]').replaceChildren("Collections", overdue ? h("span", { class: "count" }, overdue) : "");
+  const openThreads = S.threads.filter((t) => t.status === "open").length;
+  $('.tab[data-tab="replies"]').replaceChildren("Client replies", openThreads ? h("span", { class: "count" }, openThreads) : "");
+
   renderWorklog();
+  renderCollections();
+  renderReplies();
   renderActivity();
   if (view.openKey) renderDrawer();
 }
@@ -185,23 +199,81 @@ function renderIntro(ext) {
   }[ext?.kind] || "";
 }
 
+// ---------- After sending: invoice status, test payment, client replies ----------
+const PAID = ["PAID", "MARKED_AS_PAID", "PARTIALLY_REFUNDED", "REFUNDED"];
+const OPEN = ["SENT", "UNPAID", "PARTIALLY_PAID"];
+const isPaid = (r) => PAID.includes(r.status);
+const isOpen = (r) => OPEN.includes(r.status);
+const recordFor = (pid) => S.collections.find((r) => r.paypal_id === pid);
+const invoiceLink = (r) => (r.href ? h("a", { href: r.href, target: "_blank", rel: "noopener", title: "The client's view of this invoice in PayPal" }, r.number) : r.number);
+
+function invoiceStatus(r) {
+  const parts = [h("div", {}, `PayPal (${r.mode}) invoice `, invoiceLink(r), r.replaces ? " (corrected)" : "", ` · sent ${shortDate(r.invoice_date)} · due ${shortDate(r.due_date)}`)];
+  if (r.awaiting) parts.push(h("div", { class: "waiting" }, `Waiting for PayPal's ${r.awaiting.what === "payment" ? "paid" : "refund"} webhook`));
+  else if (isPaid(r)) {
+    parts.push(h("div", { class: "paid" }, `Paid ${r.paid_at ? stamp(r.paid_at) : ""} · ${r.paid_via}`));
+    if (r.refunded) parts.push(h("div", {}, `${money(r.refunded)} refunded as a credit`));
+  } else if (r.days_overdue) parts.push(h("div", { class: "late" }, `${r.days_overdue} days overdue`));
+  else parts.push(h("div", {}, `Awaiting payment · approved by ${r.approved_by}, ${stamp(r.approved_at)}`));
+  return h("div", { class: "state sent" }, parts);
+}
+
+async function act(btn, fn) {
+  btn.classList.add("busy");
+  btn.disabled = true;
+  try {
+    await fn();
+  } catch (e) {
+    toast(e.message, "error");
+  } finally {
+    await refresh();
+  }
+}
+
+function testPay(r, btn) {
+  return act(btn, async () => {
+    await api(`/api/invoices/${r.paypal_id}/test-pay`, {});
+    toast(`PayPal recorded the test payment on invoice ${r.number}. Waiting for PayPal's webhook.`);
+    startPolling();
+  });
+}
+
+function arrive(replyId, btn) {
+  return act(btn, async () => {
+    await api(`/api/replies/${replyId}/arrive`, {});
+    switchTab("replies");
+    toast("A client replied. Claude checked it against the work log.");
+  });
+}
+
+function sentActions(c, r) {
+  const reply = S.replies.find((x) => x.client_id === c.id);
+  const thread = reply && S.threads.find((t) => t.id === reply.id);
+  const buttons = [];
+  if (isOpen(r) && !r.awaiting) {
+    buttons.push(h("button", { class: "btn", type: "button", title: "Demo: records a test payment in the PayPal sandbox. PayPal's webhook then marks the invoice paid.", onclick: (e) => testPay(r, e.currentTarget) }, "Client pays (test)"));
+  }
+  if (reply && !thread && !r.awaiting && (reply.arrives === "paid" ? isPaid(r) : isOpen(r))) {
+    buttons.push(h("button", { class: "btn", type: "button", title: `Demo: ${reply.from.replace(/ <.*/, "")} replies to this invoice and questions a line.`, onclick: (e) => arrive(reply.id, e.currentTarget) }, "Client replies"));
+  }
+  if (thread) {
+    buttons.push(h("button", { class: `btn${thread.status === "open" ? " warn" : ""}`, type: "button", onclick: () => switchTab("replies") }, thread.status === "open" ? "Answer the reply" : "See the reply"));
+  }
+  if (!buttons.length) buttons.push(h("button", { class: "btn", type: "button", disabled: true }, isPaid(r) ? "Paid" : "Invoice sent"));
+  return h("div", { class: "card-actions" }, buttons);
+}
+
 function renderCards() {
   const wrap = $("#cards");
   if (!S.ledger) return wrap.replaceChildren();
   wrap.replaceChildren(
     ...S.ledger.clients.map((c) => {
       const inv = S.invoices[c.id];
-      const state = inv ? "sent" : c.open_flags ? "needs" : "ready";
+      const rec = inv && recordFor(inv.paypal_id);
+      const state = inv ? (isPaid(rec) ? "paid" : "sent") : c.open_flags ? "needs" : "ready";
       let status;
       if (inv) {
-        status = h(
-          "div",
-          { class: "state sent" },
-          `Sent through PayPal (${inv.mode}) · `,
-          h("a", { href: inv.href, target: "_blank", rel: "noopener" }, inv.paypal_id),
-          h("br"),
-          `Approved by ${inv.approved_by}, ${stamp(inv.approved_at)}`,
-        );
+        status = invoiceStatus(rec);
       } else if (c.open_flags) {
         status = h(
           "div",
@@ -211,18 +283,20 @@ function renderCards() {
       } else {
         status = h("div", { class: "state ok" }, "Every line checked against the terms.");
       }
-      const blocked = Boolean(inv) || c.open_flags > 0 || c.total <= 0;
+      const blocked = c.open_flags > 0 || c.total <= 0;
       return h(
         "article",
         { class: `card ${state}` },
         h("div", {}, h("h3", {}, c.name), h("p", { class: "terms" }, c.summary)),
-        h("div", { class: "figure" }, h("span", { class: "big" }, money(inv ? inv.total : c.total)), h("span", { class: "sub" }, `${inv ? inv.lines : c.billable_lines} lines to bill`)),
+        h("div", { class: "figure" }, h("span", { class: "big" }, money(inv ? inv.total : c.total)), h("span", { class: "sub" }, `${inv ? inv.lines : c.billable_lines} lines ${inv ? "billed" : "to bill"}`)),
         status,
-        h(
-          "button",
-          { class: "btn primary", type: "button", disabled: blocked, onclick: () => openApprove(c.id) },
-          inv ? "Invoice sent" : c.open_flags ? "Approve after deciding flags" : `Approve & send ${money(c.total)}`,
-        ),
+        inv
+          ? sentActions(c, rec)
+          : h(
+              "button",
+              { class: "btn primary", type: "button", disabled: blocked, onclick: () => openApprove(c.id) },
+              c.open_flags ? "Approve after deciding flags" : `Approve & send ${money(c.total)}`,
+            ),
       );
     }),
   );
@@ -360,7 +434,7 @@ function openApprove(clientId) {
   });
   form.replaceChildren(
     h("h2", {}, `Send ${c.name} its ${S.agency.period.label} invoice?`),
-    h("p", { class: "muted" }, "PayPal will email ", h("strong", {}, c.billing_email), " an invoice for ", h("strong", {}, money(c.total)), ", due in 15 days."),
+    h("p", { class: "muted" }, "PayPal will email ", h("strong", {}, c.billing_email), " an invoice for ", h("strong", {}, money(c.total)), `, due in ${S.agency.payment_due_days} days (${shortDate(addDays(S.today, S.agency.payment_due_days))}).`),
     h(
       "div",
       { class: "mini-wrap" },
@@ -380,6 +454,202 @@ function openApprove(clientId) {
     h("div", { class: "actions" }, h("button", { class: "btn", value: "cancel" }, "Cancel"), confirm),
   );
   $("#approve-dialog").showModal();
+}
+
+// ---------- Collections ----------
+function statusPill(r) {
+  if (r.awaiting) return h("span", { class: "pill flagged" }, "Waiting for webhook");
+  if (r.days_overdue) return h("span", { class: "pill late" }, `${r.days_overdue} days overdue`);
+  if (r.status === "CANCELLED") return h("span", { class: "pill no_charge" }, r.replaced_by ? `Replaced by ${recordFor(r.replaced_by)?.number || "a corrected invoice"}` : "Cancelled");
+  if (r.status === "PARTIALLY_REFUNDED" || r.status === "REFUNDED") return h("span", { class: "pill bill" }, `Paid · ${money(r.refunded)} refunded`);
+  if (isPaid(r)) return h("span", { class: "pill bill" }, "Paid");
+  return h("span", { class: "pill open" }, `Open · due ${shortDate(r.due_date)}`);
+}
+
+function renderCollections() {
+  $("#collections-note").textContent = `Every invoice sent through PayPal (${S.modes.paypal}), with its PayPal status. Due dates follow the agency's terms: ${S.agency.payment_due_days} days after the invoice date. Paid and refunded arrive by PayPal's webhook.`;
+  const wrap = $("#collections");
+  if (!S.collections.length) return wrap.replaceChildren(h("p", { class: "muted" }, "Nothing sent yet. Read the work log, then approve an invoice."));
+  const rows = [...S.collections].sort((a, b) => b.invoice_date.localeCompare(a.invoice_date) || String(b.number).localeCompare(String(a.number)));
+  const actions = (r) => {
+    const out = [];
+    if (r.reminder) out.push(h("button", { class: "btn primary small", type: "button", onclick: () => openReminder(r) }, "Send reminder"));
+    if (isOpen(r) && !r.awaiting) out.push(h("button", { class: "btn small", type: "button", onclick: (e) => testPay(r, e.currentTarget) }, "Client pays (test)"));
+    if (r.reminders.length) out.push(h("span", { class: "muted small" }, `Reminded ${shortDate(r.reminders.at(-1).at.slice(0, 10))}`));
+    return h("div", { class: "row-actions" }, out);
+  };
+  wrap.replaceChildren(
+    h(
+      "table",
+      { class: "coll" },
+      h("thead", {}, h("tr", {}, ["Invoice", "Client", "For", "Total", "Sent", "Due", "Status", ""].map((t) => h("th", {}, t)))),
+      h(
+        "tbody",
+        {},
+        rows.map((r) =>
+          h(
+            "tr",
+            { class: r.days_overdue ? "overdue" : "" },
+            h("td", { "data-label": "Invoice" }, invoiceLink(r), r.kind === "history" ? h("span", { class: "muted small" }, " · last month") : ""),
+            h("td", { "data-label": "Client" }, r.client_name),
+            h("td", { "data-label": "For" }, r.period),
+            h("td", { "data-label": "Total", class: "n" }, money(r.total)),
+            h("td", { "data-label": "Sent" }, shortDate(r.invoice_date)),
+            h("td", { "data-label": "Due" }, shortDate(r.due_date)),
+            h("td", { "data-label": "Status" }, statusPill(r)),
+            h("td", {}, actions(r)),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+function openReminder(r) {
+  const rem = r.reminder;
+  const form = $("#approve-form");
+  const send = h("button", { class: "btn primary", type: "button" }, "Send reminder");
+  send.addEventListener("click", async () => {
+    send.classList.add("busy");
+    send.disabled = true;
+    try {
+      await api(`/api/invoices/${r.paypal_id}/remind`, { subject: rem.subject, note: rem.note });
+      toast(`PayPal sent the reminder for invoice ${r.number}.`);
+    } catch (e) {
+      toast(e.message, "error");
+    }
+    $("#approve-dialog").close();
+    await refresh();
+  });
+  form.replaceChildren(
+    h("h2", {}, `Remind ${r.client_name}?`),
+    h("p", { class: "muted" }, `Invoice ${r.number} (${money(r.total - r.paid)}) is ${r.days_overdue} days overdue. PayPal will email this to `, h("strong", {}, r.to), ", with the payment link:"),
+    h("div", { class: "letter" }, h("p", { class: "subj" }, rem.subject), h("p", {}, rem.note)),
+    h("p", { class: "guard" }, "Your approval is tied to exactly this text. Built from the invoice, so the dates and amount are exact."),
+    h("div", { class: "actions" }, h("button", { class: "btn", value: "cancel" }, "Cancel"), send),
+  );
+  $("#approve-dialog").showModal();
+}
+
+// ---------- Client replies ----------
+const FINDING = {
+  log_supports_charge: "The log supports the charge",
+  log_supports_client: "The log supports the client",
+  log_cannot_settle: "The log can't settle it",
+};
+
+function termsBlock(clientId) {
+  const c = clientMeta(clientId);
+  return h("div", { class: "src" }, h("div", { class: "src-label" }, `${c.name} terms`), h("ol", { class: "terms-list pad" }, c.terms_text.map((t) => h("li", {}, t))));
+}
+
+function threadCard(t) {
+  const d = t.draft;
+  const head = h(
+    "div",
+    { class: "thread-head" },
+    h("div", {}, h("p", { class: "eyebrow" }, `${t.client_name} · about invoice ${t.invoice_number} · ${stamp(t.arrived_at)}`), h("h3", {}, t.subject), h("p", { class: "muted small" }, `From ${t.from}`)),
+  );
+  const email = h("pre", { class: "email" }, t.body);
+  if (t.answer) {
+    const what = t.answer.decision === "credit"
+      ? `You credited ${money(t.answer.credit)}: ${t.answer.how === "refund" ? "PayPal recorded the refund" : "PayPal cancelled the invoice and sent a corrected one"}. Your reply:`
+      : "You kept the charge. Your reply:";
+    return h("article", { class: "thread done" }, head, email, h("div", { class: "answer" }, h("p", { class: "eyebrow" }, `${what} (${stamp(t.answer.at)})`), h("pre", { class: "email" }, t.answer.text)));
+  }
+  const liveBtn = S.modes.live
+    ? h("button", { class: "btn", type: "button", onclick: (e) => act(e.currentTarget, async () => {
+        e.currentTarget.textContent = "Claude is checking the log";
+        const out = await api(`/api/replies/${t.id}/draft`, { mode: "live" });
+        delete view.replyText[t.id];
+        toast(out.fallback ? out.notice : "Claude drafted a new reply.", out.fallback ? "error" : "");
+      }) }, "Draft live with Claude")
+    : null;
+  if (!d) return h("article", { class: "thread" }, head, email, h("p", { class: "muted" }, "No draft yet."), liveBtn);
+
+  const credit = t.credit;
+  const choice = view.replyChoice[t.id] || (d.recommend_credit && credit?.how ? "credit" : "keep");
+  const text = view.replyText[t.id] ?? (choice === "credit" ? d.reply_if_credit : d.reply_if_no_credit);
+  const choose = (c) => {
+    view.replyChoice[t.id] = c;
+    delete view.replyText[t.id];
+    renderReplies();
+  };
+  const box = h("textarea", { class: "reply-text", rows: "9" });
+  box.value = text;
+  box.addEventListener("input", () => (view.replyText[t.id] = box.value));
+  const meta = t.draft_meta;
+  const scoreNote = meta.score ? ` · ${meta.score.ok ? "matches" : "differs from"} the hand-checked answer` : "";
+  const send = h("button", { class: "btn primary", type: "button" }, choice === "credit" ? `Credit ${money(credit?.amount)} & send reply` : "Send reply");
+  send.addEventListener("click", () =>
+    act(send, async () => {
+      await api(`/api/replies/${t.id}/send`, { decision: choice, text: box.value, expected_credit: credit?.amount });
+      delete view.replyText[t.id];
+      delete view.replyChoice[t.id];
+      toast(choice === "credit" ? "Credit sent through PayPal; reply recorded." : "Reply recorded; the charge stands.");
+    }),
+  );
+  const consequence = choice === "credit"
+    ? credit?.how === "refund"
+      ? `PayPal records a ${money(credit.amount)} refund on invoice ${t.invoice_number}.`
+      : credit?.how === "corrected_invoice"
+        ? `PayPal cancels invoice ${t.invoice_number} and sends a corrected one for ${money(credit.new_total)}. The terms engine re-prices the client without this line.`
+        : "This invoice can't take a credit in its current state."
+    : "Nothing changes in PayPal.";
+  return h(
+    "article",
+    { class: "thread" },
+    head,
+    email,
+    h(
+      "div",
+      { class: "agent" },
+      h("div", { class: "agent-head" }, h("span", { class: "who" }, `Claude · ${meta.kind === "live" ? `live, ${meta.seconds}s` : `recorded draft (${meta.model})`}${scoreNote}`), h("span", { class: `finding ${d.finding}` }, FINDING[d.finding])),
+      h("p", { class: "summary" }, d.owner_summary),
+      h("h4", {}, "Rows it checked"),
+      d.cited_sources.map((ref) => (ref === "terms" ? termsBlock(t.client_id) : sourceBlock(ref))),
+      h("h4", {}, "Your call"),
+      h(
+        "div",
+        { class: "seg", role: "group" },
+        h("button", { type: "button", class: choice === "credit" ? "on" : "", disabled: !credit?.how, onclick: () => choose("credit") }, `Credit ${money(credit?.amount)}${d.recommend_credit ? " · Claude's call" : ""}`),
+        h("button", { type: "button", class: choice === "keep" ? "on" : "", onclick: () => choose("keep") }, `Keep the charge${d.recommend_credit ? "" : " · Claude's call"}`),
+      ),
+      box,
+      h("p", { class: "guard" }, `${consequence} This demo sends no email: the reply is kept with the thread.`),
+      h("div", { class: "actions" }, liveBtn, send),
+    ),
+  );
+}
+
+function renderReplies() {
+  const wrap = $("#threads");
+  if (!S.threads.length) {
+    const who = S.replies.map((r) => clientMeta(r.client_id).name).join(" and ");
+    return wrap.replaceChildren(h("p", { class: "muted" }, `No client replies yet. In this demo, ${who} each question a line after their invoice is sent: approve one, then press Client replies on its card.`));
+  }
+  wrap.replaceChildren(...[...S.threads].sort((a, b) => b.arrived_at.localeCompare(a.arrived_at)).map(threadCard));
+}
+
+// While PayPal's webhook is on its way, check every 2 seconds for up to 90.
+let pollTimer = null;
+function startPolling() {
+  if (pollTimer) return;
+  const started = Date.now();
+  pollTimer = setInterval(async () => {
+    const waiting = () => S.collections.filter((r) => r.awaiting).map((r) => r.paypal_id);
+    const before = waiting();
+    await refresh();
+    for (const pid of before) {
+      const r = recordFor(pid);
+      if (r && !r.awaiting) toast(`PayPal's webhook arrived: invoice ${r.number} is ${isPaid(r) ? "paid" : r.status.toLowerCase()}.`);
+    }
+    if (!waiting().length || Date.now() - started > 90000) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      if (waiting().length) toast("No webhook from PayPal yet. Use Check PayPal on the Collections tab.", "error");
+    }
+  }, 2000);
 }
 
 // ---------- Work log and activity ----------
@@ -458,13 +728,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#scrim").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => switchTab(b.dataset.tab));
+  $("#check-paypal").addEventListener("click", (e) =>
+    act(e.currentTarget, async () => {
+      const out = await api("/api/collections/refresh", {});
+      toast(`Checked ${out.checked} invoice${out.checked === 1 ? "" : "s"} in PayPal; ${out.changed} changed.`);
+    }),
+  );
   $("#reset").addEventListener("click", async () => {
     await api("/api/reset", {});
     closeDrawer();
-    view.client = "all";
-    view.flagsOnly = false;
+    Object.assign(view, { client: "all", flagsOnly: false, replyChoice: {}, replyText: {} });
     await refresh();
     toast("Demo reset.");
   });
   await refresh();
+  if (S.collections.some((r) => r.awaiting)) startPolling();
 });

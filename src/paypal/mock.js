@@ -1,17 +1,20 @@
-// A stand-in for PayPal with the same calls and response shapes we rely on.
-// It keeps invoices in var/mock-paypal.json and sends nothing anywhere.
+// A stand-in for PayPal with the same calls and response shapes as sandbox.js.
+// It keeps invoices in var/mock-paypal.json and sends nothing anywhere. Like
+// PayPal, it reports payments and refunds a moment later as webhook events,
+// delivered in-process to whatever onEvent() registered.
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { VAR_DIR } from "../store.js";
 
 const FILE = path.join(VAR_DIR, "mock-paypal.json");
+export const EVENT_DELAY_MS = 1500;
 
 function load() {
   try {
     return JSON.parse(fs.readFileSync(FILE, "utf8"));
   } catch {
-    return { invoices: {} };
+    return { invoices: {}, next_number: 1 };
   }
 }
 
@@ -23,44 +26,127 @@ function save(db) {
 const newId = () =>
   `INV2-MOCK-${crypto.randomBytes(8).toString("hex").toUpperCase().match(/.{4}/g).join("-")}`;
 
-const total = (invoice) =>
-  invoice.items.reduce((s, i) => s + Number(i.unit_amount.value) * Number(i.quantity), 0).toFixed(2);
+const total = (params) =>
+  params.items.reduce((s, i) => s + Number(i.unit_amount.value) * Number(i.quantity), 0);
 
-export async function createInvoice(body) {
+const listeners = [];
+export function onEvent(fn) {
+  listeners.push(fn);
+}
+
+function emit(type, invoice) {
+  const event = {
+    id: `WH-MOCK-${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
+    event_type: type,
+    create_time: new Date().toISOString(),
+    resource_type: "invoices",
+    resource: {
+      invoice: {
+        id: invoice.id,
+        status: invoice.status,
+        payments: { paid_amount: { currency_code: "USD", value: invoice.paid.toFixed(2) } },
+        refunds: { refund_amount: { currency_code: "USD", value: invoice.refunded.toFixed(2) } },
+      },
+    },
+  };
+  setTimeout(() => listeners.forEach((fn) => fn(event)), EVENT_DELAY_MS).unref?.();
+}
+
+function find(db, id) {
+  const invoice = db.invoices[id];
+  if (!invoice) throw new Error(`Mock PayPal: no invoice ${id}`);
+  return invoice;
+}
+
+const log = (invoice, event, extra = {}) => invoice.history.push({ at: new Date().toISOString(), event, ...extra });
+
+export function summarize(inv) {
+  return {
+    id: inv.id,
+    status: inv.status,
+    number: inv.number,
+    invoice_date: inv.params.invoice_date,
+    reference: inv.params.reference,
+    total: inv.total,
+    paid: inv.paid,
+    refunded: inv.refunded,
+    payer_url: `/mock-paypal/invoice/${inv.id}`,
+  };
+}
+
+export async function createInvoice(params) {
   const db = load();
   const id = newId();
-  db.invoices[id] = { id, status: "DRAFT", ...body, amount: { currency_code: body.detail.currency_code, value: total(body) }, history: [{ at: new Date().toISOString(), event: "created" }] };
+  const number = `M${String(db.next_number++).padStart(4, "0")}`;
+  db.invoices[id] = { id, number, status: "DRAFT", params, total: total(params), paid: 0, refunded: 0, history: [] };
+  log(db.invoices[id], "created");
   save(db);
-  return { id, status: "DRAFT", href: `/mock-paypal/invoice/${id}` };
+  return { id, status: "DRAFT" };
 }
 
 export async function sendInvoice(id, options) {
   const db = load();
-  const invoice = db.invoices[id];
-  if (!invoice) throw new Error(`Mock PayPal: no invoice ${id}`);
+  const invoice = find(db, id);
   invoice.status = "SENT";
-  invoice.history.push({ at: new Date().toISOString(), event: "sent", subject: options.subject });
+  log(invoice, "sent", { note: options.note });
   save(db);
   return { id, status: "SENT", href: `/mock-paypal/invoice/${id}` };
 }
 
 export async function sendInvoiceReminder(id, options) {
   const db = load();
-  const invoice = db.invoices[id];
-  if (!invoice) throw new Error(`Mock PayPal: no invoice ${id}`);
-  invoice.history.push({ at: new Date().toISOString(), event: "reminder", subject: options.subject });
+  log(find(db, id), "reminder", { subject: options.subject, note: options.note });
   save(db);
-  return { id, status: invoice.status };
+  return { id };
 }
 
-export async function listInvoices() {
-  return { items: Object.values(load().invoices) };
+export async function cancelSentInvoice(id, options) {
+  const db = load();
+  const invoice = find(db, id);
+  if (!["SENT", "UNPAID"].includes(invoice.status)) throw new Error(`Mock PayPal: can't cancel a ${invoice.status} invoice.`);
+  invoice.status = "CANCELLED";
+  log(invoice, "cancelled", { note: options.note });
+  save(db);
+  emit("INVOICING.INVOICE.CANCELLED", invoice);
+  return { id, status: "CANCELLED" };
+}
+
+export async function recordPayment(id, payment) {
+  const db = load();
+  const invoice = find(db, id);
+  invoice.paid = Number(payment.amount.value);
+  invoice.status = invoice.paid >= invoice.total ? "MARKED_AS_PAID" : "PARTIALLY_PAID";
+  log(invoice, "payment", { amount: payment.amount.value });
+  save(db);
+  emit("INVOICING.INVOICE.PAID", invoice);
+  return { id, payment_id: `EXTR-MOCK-${crypto.randomBytes(4).toString("hex").toUpperCase()}` };
+}
+
+export async function recordRefund(id, refund) {
+  const db = load();
+  const invoice = find(db, id);
+  invoice.refunded += Number(refund.amount.value);
+  invoice.status = invoice.refunded >= invoice.paid ? "REFUNDED" : "PARTIALLY_REFUNDED";
+  log(invoice, "refund", { amount: refund.amount.value });
+  save(db);
+  emit("INVOICING.INVOICE.REFUNDED", invoice);
+  return { id, refund_id: `EXTR-MOCK-${crypto.randomBytes(4).toString("hex").toUpperCase()}` };
 }
 
 export async function getInvoice(id) {
+  const inv = load().invoices[id];
+  return inv ? summarize(inv) : null;
+}
+
+// The raw stored invoice, for the mock invoice page.
+export async function rawInvoice(id) {
   return load().invoices[id] || null;
 }
 
+export async function listInvoices() {
+  return { items: Object.values(load().invoices).map(summarize) };
+}
+
 export function reset() {
-  save({ invoices: {} });
+  save({ invoices: {}, next_number: 1 });
 }

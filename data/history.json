@@ -1,0 +1,14 @@
+{
+  "_note": "Invented. Last month's invoice, already sent and still unpaid, put in PayPal at demo start so collections have an overdue invoice to chase.",
+  "invoices": [
+    {
+      "client_id": "cobalt-dental",
+      "period": { "label": "September 2026", "start": "2026-09-01", "end": "2026-09-30" },
+      "invoice_date": "2026-09-30",
+      "lines": [
+        { "key": "cobalt-dental|retainer|2026-09", "date": "2026-09-01", "item": "Monthly retainer — September 2026", "amount": 1200, "reason": "Monthly retainer: $1,200 (§1).", "sources": ["terms"] },
+        { "key": "cobalt-dental|leads|2026-09", "date": "2026-09-30", "item": "Qualified leads — 4 in September", "amount": 180, "reason": "4 qualified leads at $45 each (§2), from the September CRM export.", "sources": ["September CRM export"] }
+      ]
+    }
+  ]
+}

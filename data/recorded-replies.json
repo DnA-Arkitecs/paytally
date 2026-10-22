@@ -1,0 +1,63 @@
+{
+  "_note": "Real Claude drafts for the demo's client replies, saved so the demo works without live API credit. Regenerate with: npm run eval:replies -- --save",
+  "drafts": {
+    "R1": {
+      "model": "claude-opus-5-5",
+      "recorded_at": "2026-10-22T20:56:58.349Z",
+      "seconds": 12,
+      "usage": {
+        "input_tokens": 1110,
+        "output_tokens": 1028,
+        "cache_creation_input_tokens": 6414,
+        "cache_read_input_tokens": 0
+      },
+      "invoice_paid": true,
+      "score": {
+        "right_line": true,
+        "right_call": true,
+        "ok": true
+      },
+      "draft": {
+        "line_key": "harbor-pine|calendar:29",
+        "finding": "log_cannot_settle",
+        "cited_sources": [
+          "calendar:29",
+          "terms"
+        ],
+        "recommend_credit": true,
+        "owner_summary": "Jordan says Ethan Cole never picked up for the Oct 30, 9:00 AM call despite three tries by 9:20, so it was a no-show. Our calendar entry is marked Completed but has no notes or anything else showing the call actually happened, and only Harbor & Pine would know whether he answered. Their terms make no-shows free (§2) and set no reporting deadline, so I recommend crediting the line.",
+        "reply_if_credit": "Hi Jordan,\n\nThanks for flagging this. Our calendar had Ethan Cole's 9:00 AM call on Oct 30 marked as completed, but there's nothing on our side showing he actually picked up, and your estimator's three tries settle it. No-shows are free under our agreement, so I've taken that line off. Since the invoice is already paid, PayPal will refund that line to you.\n\nSorry for the hassle.\n\nSam\nLanternfish Leads",
+        "reply_if_no_credit": "Hi Jordan,\n\nThanks for raising this. Our calendar shows Ethan Cole's 9:00 AM call on Oct 30 as completed, so it was billed as a booked call that took place under the $150-per-call clause. I know no-shows are free under our deal, and I don't doubt your estimator's effort, but our record shows the call as completed, so I've kept the charge for now. If you have anything showing the missed attempts, or you'd just like to talk it through, I'm happy to jump on a call.\n\nSam\nLanternfish Leads"
+      }
+    },
+    "R2": {
+      "model": "claude-opus-5-5",
+      "recorded_at": "2026-10-22T20:57:05.526Z",
+      "seconds": 7,
+      "usage": {
+        "input_tokens": 1536,
+        "output_tokens": 669,
+        "cache_creation_input_tokens": 6493,
+        "cache_read_input_tokens": 0
+      },
+      "invoice_paid": false,
+      "score": {
+        "right_line": true,
+        "right_call": true,
+        "ok": true
+      },
+      "draft": {
+        "line_key": "cobalt-dental|crm:19",
+        "finding": "log_supports_charge",
+        "cited_sources": [
+          "crm:19",
+          "terms"
+        ],
+        "recommend_credit": false,
+        "owner_summary": "Alex asks why Rosa Delgado is billed when she has no insurance and is paying cash. The CRM entry for Rosa (Oct 29) is marked Qualified and records 'No insurance, cash pay - budget ok'. §2 of the terms counts a qualified lead as having insurance or a budget confirmed, so a confirmed cash budget meets it. I recommend keeping the charge.",
+        "reply_if_credit": "Hi Alex,\n\nThanks for flagging Rosa Delgado. We've taken her line off your October invoice. Since the invoice hasn't been paid yet, PayPal will cancel the current one and send you a corrected invoice shortly. You can pay that one as normal.\n\nIf anything else on it looks off, just let me know.\n\nThanks,\nSam\nLanternfish Leads",
+        "reply_if_no_credit": "Hi Alex,\n\nGood question. Rosa Delgado came in on October 29. Your team marked her Qualified in the CRM with the note 'No insurance, cash pay - budget ok'. Under §2 of our agreement, a qualified lead is one your studio marks Qualified with insurance or a budget confirmed. A cash patient with a confirmed budget meets that, even without insurance, so the charge stands.\n\nIf you'd like to treat cash patients differently going forward, I'm happy to talk it through. Just reply or grab a time on our next check-in.\n\nThanks,\nSam\nLanternfish Leads"
+      }
+    }
+  }
+}

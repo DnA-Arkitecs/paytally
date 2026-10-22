@@ -1,0 +1,21 @@
+# Render Blueprint: one free web service. Render asks for the three keys when
+# the Blueprint is created; they are never stored in this repo.
+services:
+  - type: web
+    name: paytally
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/state
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
