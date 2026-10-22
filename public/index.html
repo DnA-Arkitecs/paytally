@@ -52,9 +52,12 @@
       <div class="toolbar">
         <div class="seg" id="client-filter" role="group" aria-label="Filter by client"></div>
         <label class="check"><input type="checkbox" id="flags-only"> Needs you only</label>
+        <button id="next-flag" class="btn small warn" type="button" hidden>Next decision</button>
         <input id="search" class="search" type="search" placeholder="Search lines, people, rows" aria-label="Search lines">
+        <button id="export-csv" class="btn small" type="button" title="Every line on screen, with its reason and source rows">Export CSV</button>
       </div>
       <div id="grid" class="grid"></div>
+      <p class="footnote">Click a line to see the rows it came from. <kbd>N</kbd> opens the next line that needs you; <kbd>B</kbd> bills it, <kbd>D</kbd> doesn&#39;t.</p>
       <p id="ignored-note" class="footnote"></p>
     </section>
 
@@ -95,9 +98,6 @@
       <button id="reset" class="linkish" type="button">Reset demo</button>
     </footer>
   </main>
-
-  <aside id="drawer" class="drawer" aria-hidden="true" aria-label="Line details"></aside>
-  <div id="scrim" class="scrim" hidden></div>
 
   <dialog id="approve-dialog" class="dialog">
     <form method="dialog" id="approve-form"></form>

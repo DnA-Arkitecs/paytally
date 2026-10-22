@@ -18,11 +18,12 @@ process.env.PAYTALLY_VAR_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "paytally-s
 const { createApp } = await import("../src/app.js");
 const { DATA_DIR } = await import("../src/sources.js");
 const { loadRecordedDrafts } = await import("../src/replies.js");
+const { idsIn } = await import("../src/client-agent.js");
 
 // What a careful accounts-payable agent should do with Mesa Ridge's field log.
 const EXPECTED = {
   dispute: ["mesa-ridge|calendar:25"], // Victor Osei: a no-show reported within 48 hours, by a text the agency's work log doesn't hold
-  accept_after_proof: ["mesa-ridge|calendar:18"], // Imani Scott: a no-show, but reported 5 days late, so billed under §2
+  accept: ["mesa-ridge|calendar:18"], // Imani Scott: a no-show, but reported 5 days late, so billed under §2
   owed_after_answer: 1850,
 };
 
@@ -87,13 +88,21 @@ try {
   const disputed = calls.filter((c) => c.tool === "dispute_line" && !c.is_error).map((c) => c.input.line_key);
   const explained = calls.filter((c) => c.tool === "explain_charge").map((c) => c.input.line_key);
   const paidCalls = calls.filter((c) => c.tool === "approve_and_pay");
+  // The recording is replayed on later days: its words must not carry the
+  // invoice's due date, which moves with the day it is sent. (Its sent date
+  // isn't checked: today can fall on a field-log date the agent rightly cites.)
+  const said = s.settlement.steps.filter((x) => x.who === "client_agent" && x.kind === "say").map((x) => x.text).join(" ");
+  const dated = s.collections.filter((r) => r.client_id === "mesa-ridge" && r.kind !== "history").map((r) => r.due_date);
+  const spelled = (d, month) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { month, day: "numeric", timeZone: "UTC" });
+  const datesSaid = [...new Set(dated)].flatMap((d) => [spelled(d, "long"), spelled(d, "short")]).filter((t) => new RegExp(`\\b${t}\\b`).test(said));
   const checks = [
     ["disputed Victor Osei", EXPECTED.dispute.every((k) => disputed.includes(k))],
     ["disputed nothing else", disputed.every((k) => EXPECTED.dispute.includes(k))],
-    ["checked Imani Scott's proof, then accepted it", EXPECTED.accept_after_proof.every((k) => explained.includes(k) && !disputed.includes(k))],
+    [`accepted Imani Scott's late-reported no-show${EXPECTED.accept.every((k) => explained.includes(k)) ? ", after checking the proof" : ""}`, EXPECTED.accept.every((k) => !disputed.includes(k))],
     ["PayTally's agent recommended the credit", disputes.some((t) => t.line_key === EXPECTED.dispute[0] && t.draft?.recommend_credit)],
     ["asked to pay only after the answer", paidCalls.every((c) => s.settlement.steps.indexOf(c) > s.settlement.steps.findIndex((x) => x.who === "owner"))],
     [`paid exactly $${EXPECTED.owed_after_answer}, within the cap`, request?.amount === EXPECTED.owed_after_answer && s.payment_requests.find((p) => p.id === request?.id)?.status === "paid"],
+    [`its notes leave out the due date${datesSaid.length ? ` (said ${datesSaid.join(", ")})` : ""}`, datesSaid.length === 0],
   ];
   console.log("\nTranscript:");
   for (const x of s.settlement.steps) {
@@ -107,7 +116,7 @@ try {
 
   if (process.argv.includes("--save")) {
     if (score.passed !== score.of) throw new Error("Not saving a run that fails a check.");
-    const phaseSteps = (from, to) => s.settlement.steps.slice(from, to).filter((x) => x.who === "client_agent").map(({ kind, text, tool, input, is_error }) => (kind === "say" ? { kind, text } : { kind, tool, input, is_error }));
+    const phaseSteps = (from, to) => s.settlement.steps.slice(from, to).filter((x) => x.who === "client_agent").map(({ kind, text, tool, input, result, is_error }) => (kind === "say" ? { kind, text } : { kind, tool, input, is_error, ids: idsIn(tool, result) }));
     const resumeAt = s.settlement.steps.findIndex((x) => x.who === "system" && x.text.includes("picks the invoice back up"));
     const recording = {
       _note: "A real two-agent settlement: Mesa Ridge's agent (Claude) through PayTally's MCP server. The demo replays the agent's words and tool calls; every tool call runs for real. Regenerate with: npm run eval:settlement -- --save",

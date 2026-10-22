@@ -21,7 +21,7 @@ function h(tag, attrs = {}, ...children) {
 
 let S = null;
 let grid = null;
-const view = { client: "all", flagsOnly: false, openKey: null, tab: "ledger", building: false, replyChoice: {}, replyText: {} };
+const view = { client: "all", flagsOnly: false, search: "", open: new Set(), collapsed: new Set(), notes: {}, cursor: null, tab: "ledger", building: false, replyChoice: {}, replyText: {} };
 
 async function api(path, body) {
   const init = body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
@@ -44,22 +44,241 @@ const sourceLabel = (ref) => (ref === "terms" ? "Agreement" : S.sources[ref]?.la
 const lineFor = (key) => S.ledger?.lines.find((l) => l.key === key);
 const clientMeta = (id) => S.clients.find((c) => c.id === id);
 
-// ---------- Grid ----------
+// ---------- Grid: the ledger, grouped by client ----------
+// AG Grid Community only: each client is a full-width group row, each charge
+// opens a full-width row below it with the source rows it came from (and the
+// owner's decision, for a flagged line), and a pinned row totals what's on screen.
+const isLine = (d) => Boolean(d) && !d.kind;
+const STATUS = { bill: "Bill", no_charge: "No charge", flagged: "Needs you" };
+
+function lineVisible(l) {
+  const q = view.search.trim().toLowerCase();
+  const text = () => [l.item, l.reason, l.client_name, l.evidence, l.flag, ...l.sources.map(sourceLabel), money(l.amount)].join(" ").toLowerCase();
+  return (view.client === "all" || l.client_id === view.client) && (!view.flagsOnly || l.status === "flagged") && (!q || text().includes(q));
+}
+
 function statusCell(p) {
+  if (p.node.rowPinned) return h("strong", {}, "On screen");
   const l = p.data;
-  const label = { bill: "Bill", no_charge: "No charge", flagged: "Needs you" }[l.status];
-  return h("span", { class: `pill ${l.status}` }, label, l.resolution ? h("span", { class: "you" }, " · your call") : null);
+  return h("span", { class: `pill ${l.status}` }, STATUS[l.status], l.resolution ? h("span", { class: "you" }, " · your call") : null);
 }
 
 function amountCell(p) {
   const l = p.data;
+  if (p.node.rowPinned) return h("span", { class: "amt" }, money(l.amount));
   if (l.status === "flagged") return h("span", { class: "amt stake" }, `${money(l.proposed_amount)} at stake`);
   if (l.amount === 0) return h("span", { class: "amt zero" }, money(0));
   return h("span", { class: "amt" }, money(l.amount));
 }
 
 function sourceCell(p) {
+  if (p.node.rowPinned) return "";
   return h("div", { class: "chips" }, p.data.sources.map((ref) => h("span", { class: "chip", title: S.sources[ref]?.raw || "" }, sourceLabel(ref))));
+}
+
+function groupRow(p) {
+  const id = p.data.client_id;
+  const c = S.ledger.clients.find((x) => x.id === id);
+  const lines = S.ledger.lines.filter((l) => l.client_id === id);
+  const flags = lines.filter((l) => l.status === "flagged");
+  const inv = S.invoices[id];
+  const rec = inv && recordFor(inv.paypal_id);
+  const state = inv
+    ? [isPaid(rec) ? "paid" : "sent", `Invoice ${inv.number} ${isPaid(rec) ? "paid" : "sent"} · ${money(inv.total)}`]
+    : flags.length
+      ? ["needs", `${flags.length} need${flags.length > 1 ? "" : "s"} you · ${money(flags.reduce((n, l) => n + l.proposed_amount, 0))} at stake`]
+      : ["ready", c ? `Ready · ${money(c.total)} to bill` : ""];
+  return h(
+    "div",
+    { class: `grp${view.collapsed.has(id) ? " collapsed" : ""}`, role: "button", tabindex: "0", "aria-expanded": String(!view.collapsed.has(id)), onclick: () => toggleGroup(id) },
+    h("span", { class: "chev", "aria-hidden": "true" }, "▾"),
+    h("span", { class: "grp-name" }, c ? c.name : "Not tied to a client"),
+    c ? h("span", { class: "grp-terms" }, c.summary) : null,
+    h("span", { class: "grp-count" }, `${lines.length} line${lines.length === 1 ? "" : "s"}`),
+    state[1] ? h("span", { class: `grp-state ${state[0]}` }, state[1]) : null,
+  );
+}
+
+// The drill-down: why the line is there, the clause it applied, and each
+// source row word for word. A flagged line carries the owner's decision.
+function detailRow(p) {
+  const l = lineFor(p.data.line_key);
+  if (!l) return h("div");
+  const meta = clientMeta(l.client_id);
+  const sent = Boolean(S.invoices[l.client_id]);
+  const clauses = meta ? meta.terms_text.filter((t) => (l.reason || "").includes(t.split(" ")[0])) : [];
+  let decision = null;
+  if (l.status === "flagged" && !sent && l.client_id !== "unassigned") {
+    const note = h("textarea", { placeholder: "Optional note, kept with the line (e.g. what the client said)", rows: "2" });
+    note.value = view.notes[l.key] || "";
+    note.addEventListener("input", () => (view.notes[l.key] = note.value));
+    decision = h(
+      "div",
+      { class: "flagbox" },
+      h("p", {}, l.flag),
+      note,
+      h(
+        "div",
+        { class: "actions" },
+        h("button", { class: "btn primary", type: "button", onclick: (e) => decide(l.key, "bill", e.currentTarget) }, `Bill ${money(l.proposed_amount)}`, h("kbd", {}, "B")),
+        h("button", { class: "btn", type: "button", onclick: (e) => decide(l.key, "no_charge", e.currentTarget) }, "Don't bill", h("kbd", {}, "D")),
+      ),
+    );
+  } else if (l.resolution && !sent) {
+    decision = h(
+      "div",
+      { class: "state ok" },
+      `You decided this on ${stamp(l.resolution.at)}${l.resolution.note ? `: "${l.resolution.note}"` : ""}. `,
+      h("button", { class: "linkish", type: "button", onclick: (e) => decide(l.key, "reopen", e.currentTarget) }, "Reopen"),
+    );
+  }
+  const el = h(
+    "div",
+    { class: `detail ${l.status}` },
+    h(
+      "div",
+      { class: "detail-why" },
+      decision,
+      l.status === "flagged" ? null : [h("h4", {}, "Why"), h("p", { class: "reason" }, l.reason)],
+      l.evidence ? [h("h4", {}, "What the log shows"), h("p", {}, l.evidence)] : null,
+      clauses.length ? [h("h4", {}, `${meta.name} terms applied`), h("ol", { class: "terms-list" }, clauses.map((t) => h("li", {}, t)))] : null,
+    ),
+    h("div", { class: "detail-src" }, h("h4", {}, `Source row${l.sources.length === 1 ? "" : "s"}`), l.sources.map(sourceBlock)),
+  );
+  fitRow(p, el);
+  return el;
+}
+
+// Full-width rows have no auto height: measure once drawn, then resize. (A
+// getRowHeight callback would switch off auto height for the normal rows.)
+function fitRow(p, el) {
+  requestAnimationFrame(() => {
+    const height = el.offsetHeight + 2;
+    if (height > 2 && Math.abs(height - (p.node.rowHeight || 0)) > 3) {
+      p.node.setRowHeight(height);
+      p.api.onRowHeightChanged();
+    }
+  });
+}
+
+function gridRows() {
+  if (!S.ledger) return [];
+  const ids = [...S.ledger.clients.map((c) => c.id), ...(S.ledger.lines.some((l) => l.client_id === "unassigned") ? ["unassigned"] : [])];
+  return ids.flatMap((id) => [
+    { kind: "group", key: `group|${id}`, client_id: id, v: S.ledger.built_at },
+    ...S.ledger.lines
+      .filter((l) => l.client_id === id)
+      .flatMap((l) => (view.open.has(l.key) ? [l, { kind: "detail", key: `detail|${l.key}`, client_id: id, line_key: l.key, v: `${l.status}|${l.resolution?.at || ""}` }] : [l])),
+  ]);
+}
+
+function refreshGrid() {
+  grid.setGridOption("rowData", gridRows());
+  grid.redrawRows({ rowNodes: ["group", "detail"].flatMap((k) => [...view.open, ...S.clients.map((c) => c.id), "unassigned"].map((id) => grid.getRowNode(`${k}|${id}`)).filter(Boolean)) });
+  grid.onFilterChanged();
+}
+
+// Totals for exactly what the filters leave on screen.
+let lastTotals = "";
+function updateTotals(api) {
+  let lines = 0;
+  let billed = 0;
+  let flagged = 0;
+  let stake = 0;
+  api.forEachNodeAfterFilter((node) => {
+    const l = node.data;
+    if (!isLine(l)) return;
+    lines += 1;
+    if (l.status === "flagged") {
+      flagged += 1;
+      stake += l.proposed_amount;
+    } else billed += l.amount;
+  });
+  const row = lines
+    ? [{ kind: "total", key: "total", item: `${lines} line${lines === 1 ? "" : "s"}${flagged ? ` · ${flagged} need you, ${money(stake)} at stake` : ", every one decided"}`, amount: billed, reason: "", sources: [] }]
+    : [];
+  const sig = JSON.stringify(row);
+  if (sig !== lastTotals) {
+    lastTotals = sig;
+    api.setGridOption("pinnedBottomRowData", row);
+  }
+}
+
+function toggleGroup(id) {
+  if (view.collapsed.has(id)) view.collapsed.delete(id);
+  else view.collapsed.add(id);
+  grid.redrawRows({ rowNodes: [grid.getRowNode(`group|${id}`)].filter(Boolean) });
+  grid.onFilterChanged();
+}
+
+function toggleLine(key) {
+  if (view.open.has(key)) view.open.delete(key);
+  else view.open.add(key);
+  view.cursor = key;
+  refreshGrid();
+}
+
+// The decision workflow: N jumps to the next line that needs the owner,
+// opens its source rows, and B / D decide it. Deciding moves on to the next.
+function displayedLines() {
+  const out = [];
+  grid.forEachNodeAfterFilterAndSort((n) => isLine(n.data) && out.push(n.data));
+  return out;
+}
+
+function nextFlag() {
+  if (!S.ledger) return;
+  const flagged = S.ledger.lines.filter((l) => l.status === "flagged" && !S.invoices[l.client_id] && l.client_id !== "unassigned");
+  if (!flagged.length) return toast("Nothing needs you. Every line is decided.");
+  for (const l of flagged) view.collapsed.delete(l.client_id);
+  if (!flagged.some(lineVisible)) Object.assign(view, { client: "all", search: "" });
+  $("#search").value = view.search;
+  renderFilters();
+  grid.onFilterChanged();
+  const order = displayedLines().filter((l) => l.status === "flagged" && flagged.includes(l));
+  const at = order.findIndex((l) => l.key === view.cursor);
+  const next = order[(at + 1) % order.length] || order[0];
+  view.open = new Set([next.key]);
+  view.cursor = next.key;
+  refreshGrid();
+  const node = grid.getRowNode(next.key);
+  grid.ensureNodeVisible(node, "top");
+  grid.flashCells({ rowNodes: [node] });
+}
+
+async function decide(key, decision, btn) {
+  btn?.classList.add("busy");
+  try {
+    await api("/api/lines/resolve", { key, decision, note: decision === "reopen" ? "" : view.notes[key] || "" });
+    delete view.notes[key];
+    await refresh();
+    const left = S.ledger.lines.filter((l) => l.status === "flagged" && !S.invoices[l.client_id] && l.client_id !== "unassigned").length;
+    if (decision === "reopen") return toast("Reopened: the line needs your decision again.");
+    toast(`${decision === "bill" ? "Line will be billed." : "Line credited; the rest re-priced."}${left ? ` ${left} left: next one open.` : " Every line is decided."}`);
+    if (left) nextFlag();
+    else view.open.delete(key), refreshGrid();
+  } catch (e) {
+    toast(e.message, "error");
+    btn?.classList.remove("busy");
+  }
+}
+
+function exportCsv() {
+  grid.exportDataAsCsv({
+    fileName: `paytally-ledger-${S.agency.period.label.replace(/\s+/g, "-").toLowerCase()}.csv`,
+    skipPinnedBottom: true,
+    allColumns: true,
+    shouldRowBeSkipped: (p) => !isLine(p.node.data),
+    processCellCallback: (p) => {
+      const l = p.node.data;
+      switch (p.column.getColId()) {
+        case "status": return STATUS[l.status];
+        case "amount": return (l.status === "flagged" ? l.proposed_amount : l.amount).toFixed(2);
+        case "sources": return l.sources.map((ref) => `${ref} (${sourceLabel(ref)})`).join("; ");
+        default: return p.value;
+      }
+    },
+  });
 }
 
 function initGrid() {
@@ -79,6 +298,10 @@ function initGrid() {
     wrapperBorderRadius: 12,
     spacing: 6,
   });
+  const rank = (id) => {
+    const i = S.ledger.clients.findIndex((c) => c.id === id);
+    return i < 0 ? 99 : i;
+  };
   grid = agGrid.createGrid($("#grid"), {
     theme,
     rowData: [],
@@ -86,7 +309,7 @@ function initGrid() {
     defaultColDef: { sortable: true, resizable: true, suppressMovable: true },
     columnDefs: [
       { headerName: "Status", field: "status", width: 172, cellRenderer: statusCell },
-      { headerName: "Client", field: "client_name", width: 170, wrapText: true, autoHeight: true },
+      { headerName: "Client", field: "client_name", width: 170, wrapText: true, autoHeight: true, hide: true },
       { headerName: "Date", field: "date", width: 84, valueFormatter: (p) => shortDate(p.value) },
       { headerName: "Line", field: "item", flex: 1.1, minWidth: 190, wrapText: true, autoHeight: true },
       {
@@ -95,29 +318,38 @@ function initGrid() {
         width: 140,
         type: "rightAligned",
         cellRenderer: amountCell,
-        comparator: (a, b, na, nb) => na.data.proposed_amount - nb.data.proposed_amount,
+        comparator: (a, b, na, nb) => (na.data.proposed_amount ?? 0) - (nb.data.proposed_amount ?? 0),
       },
       { headerName: "Reason", field: "reason", flex: 2.3, minWidth: 300, wrapText: true, autoHeight: true, cellClass: "cell-reason" },
-      {
-        headerName: "Source",
-        field: "sources",
-        width: 200,
-        wrapText: true,
-        autoHeight: true,
-        cellRenderer: sourceCell,
-        cellDataType: false,
-        getQuickFilterText: (p) => p.data.sources.map(sourceLabel).join(" "),
-        sortable: false,
-      },
+      { headerName: "Source", field: "sources", width: 200, wrapText: true, autoHeight: true, cellRenderer: sourceCell, cellDataType: false, sortable: false },
     ],
-    rowClassRules: {
-      "row-flagged": (p) => p.data.status === "flagged",
-      "row-free": (p) => p.data.status === "no_charge",
+    isFullWidthRow: ({ rowNode }) => ["group", "detail"].includes(rowNode.data?.kind),
+    fullWidthCellRenderer: (p) => (p.data.kind === "group" ? groupRow(p) : detailRow(p)),
+    // Sorting reorders lines within each client; groups keep their order and
+    // each drill-down stays under its line.
+    postSortRows: ({ nodes }) => {
+      if (!S?.ledger) return;
+      const groups = nodes.filter((n) => n.data.kind === "group").sort((a, b) => rank(a.data.client_id) - rank(b.data.client_id));
+      const details = new Map(nodes.filter((n) => n.data.kind === "detail").map((n) => [n.data.line_key, n]));
+      const lines = nodes.filter((n) => isLine(n.data));
+      const out = groups.flatMap((g) => lines.filter((n) => n.data.client_id === g.data.client_id).flatMap((n) => (details.has(n.data.key) ? [n, details.get(n.data.key)] : [n])).reduce((acc, n) => [...acc, n], [g]));
+      nodes.splice(0, nodes.length, ...out);
     },
-    isExternalFilterPresent: () => view.client !== "all" || view.flagsOnly,
-    doesExternalFilterPass: (node) =>
-      (view.client === "all" || node.data.client_id === view.client) && (!view.flagsOnly || node.data.status === "flagged"),
-    onRowClicked: (e) => openDrawer(e.data.key),
+    rowClassRules: {
+      "row-flagged": (p) => p.data?.status === "flagged" && !p.node.rowPinned,
+      "row-free": (p) => p.data?.status === "no_charge",
+      "row-open": (p) => isLine(p.data) && view.open.has(p.data.key),
+      "row-total": (p) => Boolean(p.node.rowPinned),
+    },
+    isExternalFilterPresent: () => true,
+    doesExternalFilterPass: (node) => {
+      const d = node.data;
+      if (d.kind === "group") return S.ledger.lines.some((l) => l.client_id === d.client_id && lineVisible(l));
+      const l = d.kind === "detail" ? lineFor(d.line_key) : d;
+      return Boolean(l) && lineVisible(l) && !view.collapsed.has(l.client_id);
+    },
+    onRowClicked: (e) => isLine(e.data) && !e.node.rowPinned && toggleLine(e.data.key),
+    onModelUpdated: (e) => updateTotals(e.api),
     overlayNoRowsTemplate: '<span class="muted">No lines yet. Read the work log to build the ledger.</span>',
   });
 }
@@ -150,8 +382,7 @@ function render() {
   renderIntro(ext);
   renderCards();
   renderFilters();
-  grid.setGridOption("rowData", S.ledger?.lines || []);
-  grid.onFilterChanged();
+  refreshGrid();
 
   const open = S.ledger ? S.ledger.lines.filter((l) => l.status === "flagged").length : 0;
   $('.tab[data-tab="ledger"]').replaceChildren("Ledger", open ? h("span", { class: "count" }, open) : "");
@@ -169,7 +400,6 @@ function render() {
   renderReplies();
   renderSettlement();
   renderActivity();
-  if (view.openKey) renderDrawer();
 }
 
 function renderIntro(ext) {
@@ -318,31 +548,20 @@ function renderFilters() {
     ),
   );
   $("#flags-only").checked = view.flagsOnly;
+  const open = S.ledger ? S.ledger.lines.filter((l) => l.status === "flagged" && !S.invoices[l.client_id] && l.client_id !== "unassigned").length : 0;
+  const next = $("#next-flag");
+  next.hidden = !open;
+  next.replaceChildren(`Next decision (${open}) `, h("kbd", {}, "N"));
 }
 
+// From a client's card: open that client's first line that needs the owner.
 function focusFlags(clientId) {
-  view.client = clientId;
-  view.flagsOnly = true;
   switchTab("ledger");
+  view.client = clientId;
+  view.cursor = null;
   renderFilters();
-  grid.onFilterChanged();
+  nextFlag();
   $("#grid").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-// ---------- Drawer ----------
-function openDrawer(key) {
-  view.openKey = key;
-  renderDrawer();
-  $("#drawer").classList.add("open");
-  $("#drawer").setAttribute("aria-hidden", "false");
-  $("#scrim").hidden = false;
-}
-
-function closeDrawer() {
-  view.openKey = null;
-  $("#drawer").classList.remove("open");
-  $("#drawer").setAttribute("aria-hidden", "true");
-  $("#scrim").hidden = true;
 }
 
 function sourceBlock(ref) {
@@ -355,67 +574,6 @@ function sourceBlock(ref) {
   }
   body.push(h("pre", {}, src.raw));
   return h("div", { class: "src" }, h("div", { class: "src-label" }, src.label), ...body);
-}
-
-function renderDrawer() {
-  const l = lineFor(view.openKey);
-  const d = $("#drawer");
-  if (!l) return closeDrawer();
-  const meta = clientMeta(l.client_id);
-  const sent = Boolean(S.invoices[l.client_id]);
-  const amountText = l.status === "flagged" ? `${money(l.proposed_amount)} at stake` : money(l.amount);
-
-  let decision = null;
-  if (l.status === "flagged" && !sent && l.client_id !== "unassigned") {
-    const note = h("textarea", { placeholder: "Optional note, kept with the line (e.g. what the client said)" });
-    const decide = async (choice, btn) => {
-      btn.classList.add("busy");
-      try {
-        await api("/api/lines/resolve", { key: l.key, decision: choice, note: note.value });
-        await refresh();
-        toast(choice === "bill" ? "Line will be billed." : "Line credited; the rest re-priced.");
-      } catch (e) {
-        toast(e.message, "error");
-        btn.classList.remove("busy");
-      }
-    };
-    decision = h(
-      "div",
-      { class: "flagbox" },
-      h("p", {}, l.flag),
-      note,
-      h(
-        "div",
-        { class: "actions" },
-        h("button", { class: "btn primary", type: "button", onclick: (e) => decide("bill", e.currentTarget) }, `Bill ${money(l.proposed_amount)}`),
-        h("button", { class: "btn", type: "button", onclick: (e) => decide("no_charge", e.currentTarget) }, "Don't bill"),
-      ),
-    );
-  } else if (l.resolution && !sent) {
-    decision = h(
-      "div",
-      { class: "state ok", style: "margin-top:14px" },
-      `You decided this on ${stamp(l.resolution.at)}. `,
-      h("button", { class: "linkish", type: "button", onclick: async () => { await api("/api/lines/resolve", { key: l.key, decision: "reopen" }); await refresh(); } }, "Reopen"),
-    );
-  }
-
-  const parts = [
-    h(
-      "div",
-      { class: "drawer-head" },
-      h("div", {}, h("p", { class: "eyebrow" }, `${l.client_name}${l.date ? ` · ${shortDate(l.date)}` : ""}`), h("h2", {}, l.item)),
-      h("button", { class: "close", type: "button", "aria-label": "Close", onclick: closeDrawer }, "×"),
-    ),
-    h("div", { class: "money-row" }, statusCell({ data: l }), h("strong", {}, amountText)),
-    decision,
-    l.status === "flagged" ? null : [h("h3", {}, "Why"), h("p", { class: "reason" }, l.reason)],
-    l.evidence ? [h("h3", {}, "What the log shows"), h("p", {}, l.evidence)] : null,
-    h("h3", {}, "Source rows"),
-    l.sources.map(sourceBlock),
-    meta ? [h("h3", {}, `${meta.name} terms`), h("ol", { class: "terms-list" }, meta.terms_text.map((t) => h("li", {}, t)))] : null,
-  ];
-  d.replaceChildren(...parts.flat(2).filter(Boolean));
 }
 
 // ---------- Approve ----------
@@ -945,9 +1103,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#build").addEventListener("click", () => build("recorded"));
   $("#build-live").addEventListener("click", () => build("live"));
   $("#flags-only").addEventListener("change", (e) => { view.flagsOnly = e.target.checked; grid.onFilterChanged(); });
-  $("#search").addEventListener("input", (e) => grid.setGridOption("quickFilterText", e.target.value));
-  $("#scrim").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  $("#search").addEventListener("input", (e) => { view.search = e.target.value; grid.onFilterChanged(); });
+  $("#next-flag").addEventListener("click", nextFlag);
+  $("#export-csv").addEventListener("click", exportCsv);
+  // Keys for the decision workflow, on the Ledger tab and outside text fields.
+  document.addEventListener("keydown", (e) => {
+    if (view.tab !== "ledger" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest("input, textarea, select, dialog")) return;
+    const key = e.key.toLowerCase();
+    const l = view.cursor && view.open.has(view.cursor) && lineFor(view.cursor);
+    if (key === "n") nextFlag();
+    else if (key === "escape" && view.open.size) { view.open.clear(); refreshGrid(); }
+    else if (l?.status === "flagged" && !S.invoices[l.client_id] && (key === "b" || key === "d")) decide(l.key, key === "b" ? "bill" : "no_charge");
+    else return;
+    e.preventDefault();
+  });
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => switchTab(b.dataset.tab));
   $("#check-paypal").addEventListener("click", (e) =>
     act(e.currentTarget, async () => {
@@ -957,8 +1126,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   );
   $("#reset").addEventListener("click", async () => {
     await api("/api/reset", {});
-    closeDrawer();
-    Object.assign(view, { client: "all", flagsOnly: false, replyChoice: {}, replyText: {} });
+    Object.assign(view, { client: "all", flagsOnly: false, search: "", open: new Set(), collapsed: new Set(), notes: {}, cursor: null, replyChoice: {}, replyText: {} });
+    $("#search").value = "";
     await refresh();
     toast("Demo reset.");
   });

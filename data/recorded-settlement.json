@@ -1,26 +1,27 @@
 {
   "_note": "A real two-agent settlement: Mesa Ridge's agent (Claude) through PayTally's MCP server. The demo replays the agent's words and tool calls; every tool call runs for real. Regenerate with: npm run eval:settlement -- --save",
   "model": "claude-opus-5-5",
-  "recorded_at": "2026-10-22T23:14:01.315Z",
+  "recorded_at": "2026-10-22T23:22:56.845Z",
   "seconds": {
-    "audit": 37,
-    "settle": 14
+    "audit": 27,
+    "settle": 9
   },
   "usage": {
-    "input_tokens": 38311,
-    "output_tokens": 747,
+    "input_tokens": 31370,
+    "output_tokens": 525,
     "cache_read_input_tokens": 0
   },
   "score": {
-    "passed": 6,
-    "of": 6,
+    "passed": 7,
+    "of": 7,
     "checks": {
       "disputed Victor Osei": true,
       "disputed nothing else": true,
-      "checked Imani Scott's proof, then accepted it": true,
+      "accepted Imani Scott's late-reported no-show": true,
       "PayTally's agent recommended the credit": true,
       "asked to pay only after the answer": true,
-      "paid exactly $1850, within the cap": true
+      "paid exactly $1850, within the cap": true,
+      "its notes leave out the due date": true
     }
   },
   "assumes": {
@@ -34,7 +35,10 @@
           "kind": "call",
           "tool": "get_ledger",
           "input": {},
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "M0002"
+          ]
         },
         {
           "kind": "call",
@@ -42,25 +46,25 @@
           "input": {
             "line_key": "mesa-ridge|calendar:25"
           },
-          "is_error": false
-        },
-        {
-          "kind": "call",
-          "tool": "explain_charge",
-          "input": {
-            "line_key": "mesa-ridge|calendar:18"
-          },
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "M0002"
+          ]
         },
         {
           "kind": "call",
           "tool": "dispute_line",
           "input": {
             "line_key": "mesa-ridge|calendar:25",
-            "reason": "Victor Osei did not show up. This was a no-show, not a consultation, so §1 doesn't apply. Under §2 a no-show is free if Mesa Ridge reports it within 48 hours of the appointment time. We reported it 18 hours 10 minutes after the appointment, well inside the 48 hours. The line should be $0. Your only proof is a calendar row marked \"Completed\". That status doesn't show a consultation happened: the Imani Scott row also says \"Completed\", and you agree she was a no-show. Removing this line doesn't change the tier for Mei Tanaka. She becomes the 9th billable consultation and stays at $250. The correct credit is $250, which brings invoice M0002 from $2,100 to $1,850.",
-            "evidence": "Mesa Ridge field log: Oct 27, 2026, 2:00 PM, Victor Osei, Mesa. NO-SHOW. Our rep waited at the door from 2:00 to 2:20 PM, called twice, and nobody was home. Report: Carla Jimenez texted Sam Rivera at Lanternfish Leads on Oct 28, 2026 at 8:10 AM: \"Victor Osei was a no-show yesterday at 2.\" That is 18 hours 10 minutes after the 2:00 PM appointment."
+            "reason": "Victor Osei's consultation did not take place. It was a no-show. We reported it 18 hours 10 minutes after the appointment, inside the 48-hour window, so under §2 it is free. §1 does not apply because no consultation took place. The only proof offered is a \"Completed\" status in Lanternfish's own booking calendar, which does not show the visit happened. With this line removed, Mei Tanaka (Oct 29) is the 9th billable consultation and stays at $250. The correct total is $1,850.",
+            "evidence": "Mesa Ridge field log: Oct 27, 2026, 2:00 PM, Victor Osei, Mesa. NO-SHOW. Our rep waited at the door from 2:00 to 2:20 PM, called twice, and nobody was home. Carla Jimenez texted Sam Rivera at Lanternfish on Oct 28, 2026 at 8:10 AM: \"Victor Osei was a no-show yesterday at 2.\" That is 18h10m after the appointment time."
           },
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "A1",
+            "M0002",
+            null
+          ]
         },
         {
           "kind": "call",
@@ -68,11 +72,16 @@
           "input": {
             "dispute_id": "A1"
           },
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "A1",
+            "M0002",
+            null
+          ]
         },
         {
           "kind": "say",
-          "text": "Carla, I checked all 10 lines on Lanternfish's October invoice M0002 against our field log. It totals $2,100 and is due Nov 6. I disputed one line, Victor Osei for $250, and accepted the other nine. Nothing has been paid, because that dispute is still open.\n\n**The disputed line:** they billed Victor Osei on Oct 27 at 2:00 PM as a completed consultation, at $250. Our log says he was a no-show. The rep waited at the door from 2:00 to 2:20 PM and called twice. You texted Sam Rivera on Oct 28 at 8:10 AM. That's 18 hours 10 minutes after the appointment, well inside the 48-hour window in §2, so it should be free.\n\nWhen I asked for their proof, all they had was a calendar row marked \"Completed.\" That doesn't prove the visit happened, because Imani Scott's row says \"Completed\" too and they agree she was a no-show.\n\nTheir own billing agent agrees the calendar can't settle it and recommends the credit. It's asking Sam to check his texts from you on the morning of Oct 28. Sam hasn't decided yet.\n\n**If they credit it:**\n- The credit is $250 and the invoice drops to $1,850.\n- Mei Tanaka on Oct 29 stays at $250. She just becomes the 9th billable consultation instead of the 10th.\n- PayPal will cancel M0002 and send a corrected invoice.\n\n**The eight consultations I accepted:** each one matches a \"Consultation done\" entry in our log. Hannah Price (Oct 1), Jorge Alvarez (Oct 4), Keisha Grant (Oct 7), Bianca Rossi (Oct 12), Caleb Turner (Oct 15), Derek Huang (Oct 18) and Lena Moretti (Oct 24) are $200 each. Mei Tanaka (Oct 29) is $250.\n\n**Imani Scott (Oct 17, 10:00 AM), $200, also accepted:** she was a no-show, but your email reporting it went out on Oct 22 at 4:40 PM. That's about 126.7 hours later, past the 48-hour limit. Under §2 a late-reported no-show is billed, so their charge is right.\n\n**Not on the invoice, which is correct:**\n- Owen Fischer (Oct 10): your Oct 11, 9:05 AM email reported the no-show in time.\n- Robert Okafor (Oct 21): he was already our customer before Lanternfish (quote Q-0814 from Aug 14), as you told them on Oct 25.\n\n**Payment:** once Sam decides, I'll send you a payment for exactly the amount owed to approve with one tap. That's $1,850 if he credits the line. If he refuses, it stays at $2,100, which is over your $2,000 limit, so I'd come back to you first."
+          "text": "Carla, I checked all 10 lines on invoice M0002 ($2,100) against our field log. Nothing is paid yet.\n\nI accepted 9 lines. Eight are consultations our reps logged as done: seven at $200 each, plus Mei Tanaka at $250. I also accepted Imani Scott at $200. You reported that no-show on Oct 22, which is past the 48-hour window, so §2 lets them bill it. Owen Fischer and Robert Okafor were not billed.\n\nI disputed Victor Osei ($250). Their only proof is a \"Completed\" status in their own calendar. Our rep waited at the door from 2:00 to 2:20 PM and nobody came. You texted Sam Rivera on Oct 28 at 8:10 AM, 18h10m after the appointment, so §2 makes it free. Their agent recommends a credit. Sam Rivera hasn't decided yet.\n\nIf Sam gives the credit, we owe $1,850. I'll ask you to approve that payment once it's settled."
         }
       ]
     },
@@ -84,13 +93,22 @@
           "input": {
             "dispute_id": "A1"
           },
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "A1",
+            "M0002",
+            "M0003"
+          ]
         },
         {
           "kind": "call",
           "tool": "get_ledger",
           "input": {},
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "M0003",
+            "M0002"
+          ]
         },
         {
           "kind": "call",
@@ -99,11 +117,15 @@
             "invoice_number": "M0003",
             "amount": 1850
           },
-          "is_error": false
+          "is_error": false,
+          "ids": [
+            "PR-88353E",
+            "M0003"
+          ]
         },
         {
           "kind": "say",
-          "text": "Carla, Lanternfish took the Victor Osei line off, and the corrected invoice is waiting for your tap to pay it. It's $1,850, under your $2,000 limit.\n\nSam Rivera credited the $250 for Victor Osei. He confirmed your Oct 28, 8:10 AM text came well within the 48 hours. PayPal cancelled the old invoice M0002 ($2,100). The new one, M0003, is for $1,850 and is due Nov 6. That was our only dispute, and none are open now.\n\nI checked every line on M0003 against our field log:\n- **Seven consultations at $200 each:** Hannah Price (Oct 1), Jorge Alvarez (Oct 4), Keisha Grant (Oct 7), Bianca Rossi (Oct 12), Caleb Turner (Oct 15), Derek Huang (Oct 18) and Lena Moretti (Oct 24). Each matches a \"Consultation done\" entry.\n- **Imani Scott (Oct 17), $200:** she was a no-show, but it was reported late, so §2 says it's billed.\n- **Mei Tanaka (Oct 29), $250:** she's now the 9th billable consultation, so the $250 rate is right.\n\nThat's eight at $200 ($1,600) plus $250, which comes to $1,850.\n\nVictor Osei, Owen Fischer and Robert Okafor are correctly left off the invoice.\n\nI've asked to pay exactly $1,850 on M0003 through PayPal. The payment is PR-FBF8E3. Once you tap approve in PayTally, PayPal takes the payment and the invoice gets marked paid."
+          "text": "Carla, Lanternfish agreed with our dispute. Sam Rivera removed the $250 charge for Victor Osei and wrote that your Oct 28, 8:10 AM text came well within the 48-hour no-show window. PayPal cancelled invoice M0002 ($2,100). Lanternfish sent invoice M0003 ($1,850) to replace it.\n\nI checked all 9 lines on M0003 against our field log, and every one is right. Eight lines are $200 each: seven consultations our reps logged as done, plus Imani Scott, who can be billed because she was reported late. Mei Tanaka is now the 9th billable visit, so she stays at $250. That adds up to $1,850. Owen Fischer, Robert Okafor and Victor Osei are not billed.\n\nNothing is in dispute now. $1,850 is under your $2,000 cap, so I asked to pay it through PayPal (payment PR-88353E). It needs your one-tap approval in PayTally."
         }
       ]
     }

@@ -27,8 +27,31 @@ You reach the agency's billing system, PayTally, only through its tools. What th
 ${agent.records.join("\n")}
 </our_records>
 
-Be exact with dates, times and amounts. Write for ${agent.human}: short, plain sentences, no tables, no headings.`;
+Be exact with dates, times and amounts. Write for ${agent.human}: under 120 words, short plain sentences, no tables, no headings. Refer to invoices by number and amount; leave out invoice and due dates, which ${agent.human} sees in PayPal.`;
 }
+
+// The identifiers a tool result carries (invoice numbers, dispute and payment
+// ids), in a fixed order, so a replay can map a recording's ids to live ones.
+export function idsIn(tool, result) {
+  if (!result || typeof result !== "object" || result.error) return [];
+  switch (tool) {
+    case "get_ledger":
+      return (result.invoices || []).map((i) => i.invoice_number);
+    case "explain_charge":
+      return [result.on_invoice];
+    case "dispute_line":
+    case "get_dispute":
+      return [result.dispute_id, result.invoice_number, result.answer?.corrected_invoice?.invoice_number || null];
+    case "approve_and_pay":
+    case "get_payment":
+      return [result.payment_id, result.invoice_number];
+    default:
+      return [];
+  }
+}
+
+const swapText = (text, ids) => Object.entries(ids).sort((a, b) => b[0].length - a[0].length).reduce((t, [from, to]) => t.split(from).join(to), text);
+const swapInput = (input, ids) => Object.fromEntries(Object.entries(input).map(([k, v]) => [k, typeof v === "string" && ids[v] ? ids[v] : v]));
 
 export async function connect(url, token) {
   const client = new Client({ name: "client-ap-agent", version: "1.0.0" });
@@ -110,29 +133,38 @@ export async function runPhase({ url, agent, phase, history = [], anthropic = ne
 // One phase from a recording: Claude's words and choices are the recorded
 // ones, but every tool call really runs against PayTally's MCP server again,
 // so disputes, the owner's checkpoint and the PayPal payment all happen for
-// real. If a call no longer behaves as recorded, replay stops there.
-export async function replayPhase({ url, agent, recording, onStep = () => {} }) {
+// real. Invoice numbers and ids differ from the recording's (PayPal numbers
+// them), so ids maps each recorded id to the live one as calls return it, and
+// the agent's later calls and words use the live ids. If a call no longer
+// behaves as recorded, replay stops there.
+export async function replayPhase({ url, agent, recording, ids = {}, onStep = () => {} }) {
   const mcp = await connect(url, agent.token);
   try {
     const steps = [];
     for (const rec of recording.steps) {
       if (rec.kind === "say") {
-        steps.push(rec);
-        onStep(rec);
+        const said = { kind: "say", text: swapText(rec.text, ids) };
+        steps.push(said);
+        onStep(said);
         continue;
       }
+      const input = swapInput(rec.input, ids);
       const call_id = `replay-${crypto.randomUUID()}`;
-      onStep({ kind: "call", call_id, tool: rec.tool, input: rec.input, pending: true });
+      onStep({ kind: "call", call_id, tool: rec.tool, input, pending: true });
       await new Promise((r) => setTimeout(r, 350));
-      const { result, is_error } = await callTool(mcp, rec.tool, rec.input);
-      const s = { kind: "call", call_id, tool: rec.tool, input: rec.input, result, is_error };
+      const { result, is_error } = await callTool(mcp, rec.tool, input);
+      const live = idsIn(rec.tool, result);
+      (rec.ids || []).forEach((was, i) => {
+        if (was && live[i] && was !== live[i]) ids[was] = live[i];
+      });
+      const s = { kind: "call", call_id, tool: rec.tool, input, result, is_error };
       steps.push(s);
       onStep(s);
       if (is_error !== Boolean(rec.is_error)) {
         throw new Error(`${rec.tool} ${is_error ? `failed (${result?.error || "error"})` : "succeeded"} where the recorded run ${rec.is_error ? "failed" : "succeeded"}, so the recording no longer fits`);
       }
     }
-    return { steps };
+    return { steps, ids };
   } finally {
     await mcp.close().catch(() => {});
   }

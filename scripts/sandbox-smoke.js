@@ -1,7 +1,9 @@
 // Runs the whole flow against the real PayPal sandbox through the app's own
 // routes: last month's overdue invoice and its reminder, approve and send,
-// a test payment, a dispute credited as a refund, and a dispute credited as a
-// corrected invoice. Needs PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (sandbox).
+// a test card payment, a dispute credited as a real refund, a dispute credited
+// as a corrected invoice, and Mesa Ridge's agent settling over MCP (recorded
+// run) with its human approving a charge to the card saved in PayPal Vault.
+// Needs PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (sandbox).
 //   npm run smoke:sandbox                  status from "Check PayPal" (no public URL, so no webhook)
 //   npm run smoke:sandbox -- <base URL>    drive a deployed copy instead, where PayPal's webhook marks it paid
 import fs from "node:fs";
@@ -46,10 +48,10 @@ async function until(check, what) {
   }
 }
 
-async function approve(id) {
+async function approve(id, decision = "bill") {
   let s = await state();
   for (const l of s.ledger.lines.filter((x) => x.client_id === id && x.status === "flagged")) {
-    await post("/api/lines/resolve", { key: l.key, decision: "bill", note: "smoke test" });
+    await post("/api/lines/resolve", { key: l.key, decision, note: "smoke test" });
   }
   s = await state();
   const total = s.ledger.clients.find((c) => c.id === id).total;
@@ -80,7 +82,9 @@ try {
   step(`R1 draft (${r1.draft_meta.kind}): ${r1.draft.line_key}, ${r1.draft.finding}, credit ${r1.credit.amount} by ${r1.credit.how}`);
   await post("/api/replies/R1/send", { decision: "credit", text: r1.draft.reply_if_credit, expected_credit: r1.credit.amount });
   s = await until((x) => record(x, hp.paypal_id).status.includes("REFUNDED"), "the refund");
-  step(`invoice ${hp.number} is ${record(s, hp.paypal_id).status}, $${record(s, hp.paypal_id).refunded} refunded`);
+  const hpRec = record(s, hp.paypal_id);
+  step(`invoice ${hp.number} is ${hpRec.status}, $${hpRec.refunded} refunded; card capture ${hpRec.payments[0]?.capture_id}, refund ${hpRec.refunds?.[0]?.refund_id || "(none)"}`);
+  if (!hpRec.refunds?.[0]?.refund_id) throw new Error("The credit did not move money back to the card.");
 
   const cobalt = await approve("cobalt-dental");
   step(`Cobalt invoice ${cobalt.number} sent: $${cobalt.total}`);
@@ -93,8 +97,27 @@ try {
   const next = s.invoices["cobalt-dental"];
   step(`invoice ${cobalt.number} is ${record(s, cobalt.paypal_id).status}; corrected invoice ${next.number} sent for $${next.total}`);
 
+  // Mesa Ridge: its own agent checks the invoice over MCP, disputes Victor
+  // Osei, the owner credits it, the agent asks to pay, Carla approves.
+  const mesa = await approve("mesa-ridge", "no_charge");
+  step(`Mesa Ridge invoice ${mesa.number} sent: $${mesa.total}; card ${(await state()).client_agents[0].saved_method?.vault_id ? "saved in Vault" : "NOT SAVED"}`);
+  await post("/api/settlement/start");
+  s = await until((x) => !x.settlement.running && x.settlement.steps.length > 1, "the agent's audit");
+  const a1 = s.threads.find((t) => t.channel === "agent");
+  if (!a1) throw new Error(s.settlement.steps.at(-1)?.text || "The agent opened no dispute.");
+  step(`agent disputed ${a1.line_key}; PayTally recommends credit: ${a1.draft.recommend_credit}`);
+  await post(`/api/replies/${a1.id}/send`, { decision: "credit", text: a1.draft.reply_if_credit, expected_credit: a1.credit.amount });
+  await post("/api/settlement/resume");
+  s = await until((x) => !x.settlement.running && x.settlement.phases_done.includes("settle"), "the agent's payment request");
+  const pr = s.payment_requests.find((p) => p.status === "awaiting_approval");
+  if (!pr) throw new Error(s.settlement.steps.at(-1)?.text || "The agent asked for no payment.");
+  step(`agent asked to pay $${pr.amount} on invoice ${pr.invoice_number}`);
+  await post(`/api/payments/${pr.id}/approve`, { expected_amount: pr.amount });
+  s = await until((x) => x.payment_requests.find((p) => p.id === pr.id).status === "paid", "the vault payment");
+  step(`Carla approved; PayPal charged the saved card, capture ${s.payment_requests.find((p) => p.id === pr.id).paypal.capture_id}; invoice paid`);
+
   console.log("\nActivity (newest first):");
-  for (const a of s.activity.slice(0, 16)) console.log(`  [${a.kind}] ${a.text}`);
+  for (const a of s.activity.slice(0, 24)) console.log(`  [${a.kind}] ${a.text}`);
   console.log("\nSmoke test passed.");
 } catch (err) {
   console.error(`\nSmoke test FAILED: ${err.message}`);

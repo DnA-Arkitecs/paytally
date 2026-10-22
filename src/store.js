@@ -27,7 +27,7 @@ const empty = () => ({
   activity: [],
 });
 
-const emptySettlement = () => ({ client_id: null, mode: null, running: null, phases_done: [], steps: [], messages: [], notice: "", model: null, usage: null });
+const emptySettlement = () => ({ client_id: null, mode: null, running: null, phases_done: [], steps: [], messages: [], id_map: {}, notice: "", model: null, usage: null });
 
 export function loadSettlement() {
   try {

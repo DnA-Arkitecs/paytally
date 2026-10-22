@@ -64,19 +64,23 @@ export function createApp({
     const line = collect.applyEvent(state, event, via);
     if (!line) return;
     store.log(state, line, "paypal");
-    // A payment a client's agent asked for is done when PayPal says the invoice is paid.
-    for (const p of Object.values(state.payment_requests)) {
-      const record = collect.findRecord(state, p.paypal_id);
-      if (p.status === "sent_to_paypal" && record && collect.PAID.has(record.status)) {
-        p.status = "paid";
-        settlementStep(p.client_id, { who: "paypal", text: `PayPal's webhook: invoice ${p.invoice_number} paid, ${money(p.amount)}. Settled.` });
-      }
-    }
+    closePaidRequests(state, "PayPal's webhook");
     if (event.event_type.startsWith("PAYMENT.CAPTURE")) {
       const record = collect.recordForEvent(state, event);
       settlementStep(record.client_id, { who: "paypal", text: line });
     }
     store.save(state);
+  }
+
+  // A payment a client's agent asked for is done when PayPal says the invoice is paid.
+  function closePaidRequests(state, via) {
+    for (const p of Object.values(state.payment_requests)) {
+      const record = collect.findRecord(state, p.paypal_id);
+      if (p.status === "sent_to_paypal" && record && collect.PAID.has(record.status)) {
+        p.status = "paid";
+        settlementStep(p.client_id, { who: "paypal", text: `${via}: invoice ${p.invoice_number} paid, ${money(p.amount)}. Settled.` });
+      }
+    }
   }
 
   // The agent settlement transcript: one client's agent, PayTally's answers and
@@ -506,6 +510,7 @@ export function createApp({
           changed += 1;
         }
       }
+      closePaidRequests(state, "Checked PayPal");
       store.save(state);
       res.json({ ok: true, checked: records.length, changed });
     } catch (err) {
@@ -682,7 +687,7 @@ export function createApp({
 
   async function runSettlementPhase(phase, { agent, live: useLive, notice, recording }, baseUrl) {
     store.updateSettlement((x) => {
-      if (phase === "audit") Object.assign(x, { client_id: agent.client_id, mode: useLive ? "live" : "recorded", steps: [], messages: [], phases_done: [], usage: null });
+      if (phase === "audit") Object.assign(x, { client_id: agent.client_id, mode: useLive ? "live" : "recorded", steps: [], messages: [], phases_done: [], usage: null, id_map: {} });
       x.running = phase;
       x.notice = notice;
       x.steps.push({ at: new Date().toISOString(), who: "system", text: phase === "audit" ? `${agent.name} connects to PayTally's MCP server as ${agent.client_name} (${useLive ? "live Claude" : "recorded Claude run; every tool call runs for real"}).` : `${agent.name} picks the invoice back up.` });
@@ -701,7 +706,8 @@ export function createApp({
           x.phase_seconds = { ...(x.phase_seconds || {}), [phase]: Math.round((Date.now() - started) / 1000) };
         });
       } else {
-        await replayClientPhase({ url, agent, recording: recording.phases[phase], onStep });
+        const out = await replayClientPhase({ url, agent, recording: recording.phases[phase], ids: { ...store.loadSettlement().id_map }, onStep });
+        store.updateSettlement((x) => (x.id_map = out.ids));
         store.updateSettlement((x) => (x.model = recording.model));
       }
       store.updateSettlement((x) => x.phases_done.push(phase));
