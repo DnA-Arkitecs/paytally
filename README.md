@@ -37,7 +37,7 @@ Any MCP client can play the client's agent. With Claude Code:
 claude mcp add --transport http paytally https://paytally-wyzc.onrender.com/mcp --header "Authorization: Bearer demo-mesa-ridge"
 ```
 
-`demo-mesa-ridge` is a public demo token for the invented client Mesa Ridge Solar. The **Client's AI agent** tab shows every call your agent makes.
+`demo-mesa-ridge` is a public demo token for the invented client Mesa Ridge Solar. Each browser gets its own demo, so the **Client's AI agent** tab shows a connect line whose token ends with your demo's id; copy that one and your agent works on your demo, and the tab shows every call it makes. The bare `demo-mesa-ridge` reaches the demo opened most recently.
 
 ### Collections dashboard (AG Studio)
 
@@ -47,7 +47,7 @@ claude mcp add --transport http paytally https://paytally-wyzc.onrender.com/mcp 
 
 - **The demo always works.** **Read the work log** shows a recorded run: a real Claude Opus 5.5 reading of the demo log, saved in `data/recorded-run.json` and checked against a hand-checked answer key (39 of 40 items match; on the 40th, Claude flagged a row whose status says "Completed" while its note says "NS" and asked instead of guessing). No live API credit is needed to see it working.
 - **Run live with Claude** appears when the server has an Anthropic key. It makes a fresh call (about a minute), scores the new reading against the same answer key, and shows the result. If the call fails for any reason (no credit, rate limit, network), the screen says why and falls back to the recorded run.
-- **Try the human checkpoint:** open a flagged line (amber), read its sources, choose bill or don't bill, then approve that client's invoice. The **Work log** tab shows every raw row and the ledger line it became, or why it was left out. **Reset demo** at the bottom starts over.
+- **Try the human checkpoint:** open a flagged line (amber), read its sources, choose bill or don't bill, then approve that client's invoice. The **Work log** tab shows every raw row and the ledger line it became, or why it was left out. **Reset demo** at the bottom starts over. Each browser has its own demo (a cookie names it), so judges never see or reset each other's work.
 - **Then follow the money.** On a sent invoice, **Client pays (test)** records a test payment in the PayPal sandbox; the card turns paid when PayPal's webhook arrives. **Client replies** brings in a dispute: Harbor & Pine's comes after paying (a credit becomes a refund), Cobalt Dental's before (a credit becomes a corrected invoice). **Collections** has last month's invoice, already overdue, ready for a reminder.
 - **Dispute drafts work the same way as the reading:** recorded real Claude drafts by default (both match the hand-checked answer), with **Draft live with Claude** when the server has a key, falling back to the recording if the call fails.
 - **Watch two agents settle a bill.** Approve Mesa Ridge's invoice, then open **Client's AI agent** and start its check. Its agent (Claude, replaying a recorded run; every tool call is real) checks 10 lines against its own field log, asks for proof on one and disputes it. Answer in **Client replies**, then let the agent finish: it checks the corrected invoice and asks to pay, and you approve as its human.
@@ -90,7 +90,7 @@ npm run smoke:sandbox [base URL]  # runs the whole flow against the real PayPal 
 
 ## Deploy (Render)
 
-`render.yaml` is a Blueprint for one web service: build command `npm install`, start command `npm start`. Environment: `PAYPAL_MODE=sandbox`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and optionally `ANTHROPIC_API_KEY`. Optional limits for a public demo: `PAYTALLY_LIVE_SETTLEMENTS` (live agent runs per server, default 6), `PAYTALLY_LIVE_RULINGS` (live dispute rulings, default 12), `PAYTALLY_STUDIO_TURNS` (dashboard assistant turns, default 80). `AG_STUDIO` takes an AG Studio license key; without one Studio shows its trial watermark. Render's free tier keeps no disk between restarts, so each restart is a fresh demo.
+`render.yaml` is a Blueprint for one web service: build command `npm install`, start command `npm start`. Environment: `PAYPAL_MODE=sandbox`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and optionally `ANTHROPIC_API_KEY`. Optional limits for a public demo: `PAYTALLY_LIVE_SETTLEMENTS` (live agent runs per server, default 6), `PAYTALLY_LIVE_RULINGS` (live dispute rulings, default 12), `PAYTALLY_STUDIO_TURNS` (dashboard assistant turns, default 80). `AG_STUDIO` takes an AG Studio license key; without one Studio shows its trial watermark. Render's free tier keeps no disk between restarts, so each restart is a fresh demo. Each browser's demo lives in `var/demos/<id>/`; scripts and tests without the cookie share `var/state.json`.
 
 ## Demo data
 

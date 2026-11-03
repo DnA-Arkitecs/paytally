@@ -4,13 +4,36 @@
 // PayPal, every MCP call, PayPal webhook events already applied, and an
 // activity log. One JSON file; fine for a demo. The agent settlement's running
 // transcript has its own file, so a long PayPal call elsewhere can't overwrite it.
+//
+// Each browser has its own demo (a cookie names it), so two judges on the
+// public link never see or reset each other's work. The demo is carried with
+// the request (AsyncLocalStorage), so everything below reads and writes the
+// right one. Scripts and tests send no cookie and share the "main" demo.
 import fs from "node:fs";
 import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 
 export const VAR_DIR = process.env.PAYTALLY_VAR_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "var");
-const FILE = path.join(VAR_DIR, "state.json");
-const SETTLEMENT_FILE = path.join(VAR_DIR, "settlement.json");
+export const MAIN = "main";
+const DEMOS_DIR = path.join(VAR_DIR, "demos");
+const demo = new AsyncLocalStorage();
+
+export const isDemoId = (id) => id === MAIN || /^[a-f0-9]{16}$/.test(String(id));
+export const currentDemo = () => demo.getStore() || MAIN;
+export const inDemo = (id, fn) => demo.run(isDemoId(id) ? id : MAIN, fn);
+const dir = () => (currentDemo() === MAIN ? VAR_DIR : path.join(DEMOS_DIR, currentDemo()));
+const stateFile = () => path.join(dir(), "state.json");
+const settlementFile = () => path.join(dir(), "settlement.json");
+
+// Every demo on this server, "main" first.
+export function demoIds() {
+  let ids = [];
+  try {
+    ids = fs.readdirSync(DEMOS_DIR).filter((id) => id !== MAIN && isDemoId(id));
+  } catch {}
+  return [MAIN, ...ids];
+}
 
 const empty = () => ({
   extraction: null,
@@ -31,7 +54,7 @@ const emptySettlement = () => ({ client_id: null, mode: null, running: null, pha
 
 export function loadSettlement() {
   try {
-    return { ...emptySettlement(), ...JSON.parse(fs.readFileSync(SETTLEMENT_FILE, "utf8")) };
+    return { ...emptySettlement(), ...JSON.parse(fs.readFileSync(settlementFile(), "utf8")) };
   } catch {
     return emptySettlement();
   }
@@ -42,22 +65,22 @@ export function loadSettlement() {
 export function updateSettlement(fn) {
   const s = loadSettlement();
   fn(s);
-  fs.mkdirSync(VAR_DIR, { recursive: true });
-  fs.writeFileSync(SETTLEMENT_FILE, JSON.stringify(s, null, 2));
+  fs.mkdirSync(dir(), { recursive: true });
+  fs.writeFileSync(settlementFile(), JSON.stringify(s, null, 2));
   return s;
 }
 
 export function load() {
   try {
-    return { ...empty(), ...JSON.parse(fs.readFileSync(FILE, "utf8")) };
+    return { ...empty(), ...JSON.parse(fs.readFileSync(stateFile(), "utf8")) };
   } catch {
     return empty();
   }
 }
 
 export function save(state) {
-  fs.mkdirSync(VAR_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(state, null, 2));
+  fs.mkdirSync(dir(), { recursive: true });
+  fs.writeFileSync(stateFile(), JSON.stringify(state, null, 2));
 }
 
 export function log(state, text, kind = "info") {

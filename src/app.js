@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +61,14 @@ export function createApp({
       .catch((err) => console.error(`PayPal webhook registration failed: ${err.message}`));
   }
 
+  // A PayPal event belongs to the demo whose invoice it is about; PayPal's
+  // webhook carries no cookie, so each demo is checked for that invoice.
   function receive(event, via) {
+    const id = store.demoIds().find((d) => store.inDemo(d, () => Boolean(collect.recordForEvent(store.load(), event))));
+    if (id) store.inDemo(id, () => apply(event, via));
+  }
+
+  function apply(event, via) {
     const state = store.load();
     const line = collect.applyEvent(state, event, via);
     if (!line) return;
@@ -160,6 +168,38 @@ export function createApp({
   });
 
   app.use(express.json());
+
+  // ---------- One demo per browser ----------
+  // Opening the page gives the browser its own demo, named in a cookie, so
+  // judges on the public link never share or reset each other's work. Requests
+  // without the cookie (scripts, tests) use the shared "main" demo. This runs
+  // after the body is parsed, so the demo stays with the whole request.
+  const COOKIE = "paytally_demo";
+  let newestDemo = store.MAIN;
+  app.use((req, res, next) => {
+    let id = String(req.headers.cookie || "").match(new RegExp(`(?:^|;\\s*)${COOKIE}=([a-f0-9]{16})`))?.[1];
+    if (!id && req.method === "GET" && /text\/html/.test(req.headers.accept || "")) {
+      id = crypto.randomBytes(8).toString("hex");
+      res.cookie(COOKIE, id, { path: "/", httpOnly: true, sameSite: "lax", secure: req.headers["x-forwarded-proto"] === "https", maxAge: 60 * 86400000 });
+    }
+    if (!id) return next();
+    newestDemo = id;
+    store.inDemo(id, next);
+  });
+
+  // A client's agent sends no cookie, so its token names the demo:
+  // "demo-mesa-ridge.<demo>". The bare demo token reaches the newest browser
+  // demo, so the connect line in the README works for whoever is looking.
+  const scopedToken = (token) => `${token}.${store.currentDemo()}`;
+  const splitToken = (token) => {
+    const [base, scope, extra] = String(token).split(".");
+    return extra === undefined && (scope === undefined || store.isDemoId(scope)) ? { base, scope: scope ?? newestDemo } : null;
+  };
+  app.use("/mcp", (req, res, next) => {
+    const parts = splitToken(String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim());
+    store.inDemo(parts?.scope ?? store.MAIN, next);
+  });
+
   app.use(express.static(path.join(ROOT, "public")));
   app.use("/vendor/ag-grid", express.static(path.join(ROOT, "node_modules", "ag-grid-community", "dist")));
 
@@ -210,7 +250,7 @@ export function createApp({
       replies: clientReplies.map(({ id, client_id, arrives, from }) => ({ id, client_id, arrives, from })),
       threads: Object.values(state.threads).map((t) => ({ ...t, credit: creditPreview(state, t, sources) })),
       client_agents: clientAgents.map(({ client_id, client_name, name, human, human_role, cap, token, instructions, records_label, records }) => ({
-        client_id, client_name, name, human, human_role, cap, token, instructions, records_label, records,
+        client_id, client_name, name, human, human_role, cap, token: scopedToken(token), instructions, records_label, records,
         saved_method: state.saved_methods[client_id] || null,
       })),
       mcp: { path: "/mcp", tools: Object.entries(TOOLS).map(([name, t]) => ({ name, title: t.title, description: t.description })), log: state.mcp_log.slice(0, 40) },
@@ -725,7 +765,7 @@ export function createApp({
   };
 
   mountMcp(app, {
-    agentForToken: (token) => clientAgents.find((a) => a.token === token) || null,
+    agentForToken: (token) => clientAgents.find((a) => a.token === splitToken(token)?.base) || null,
     handlers: mcpHandlers,
     log: (agent, tool, args, outcome) => {
       const state = store.load();
@@ -791,7 +831,9 @@ export function createApp({
     return { agent, live, notice, recording };
   }
 
-  async function runSettlementPhase(phase, { agent, live: useLive, notice, recording }, baseUrl) {
+  async function runSettlementPhase(phase, { agent: base, live: useLive, notice, recording }, baseUrl) {
+    // The agent reaches this server over HTTP with no cookie: its token carries this demo.
+    const agent = { ...base, token: scopedToken(base.token) };
     store.updateSettlement((x) => {
       if (phase === "audit") Object.assign(x, { client_id: agent.client_id, mode: useLive ? "live" : "recorded", steps: [], messages: [], phases_done: [], usage: null, id_map: {} });
       x.running = phase;
@@ -897,11 +939,12 @@ export function createApp({
     } else {
       const started = Date.now();
       try {
-        if (!replyInFlight.has(thread.id)) {
+        const key = `${store.currentDemo()}:${thread.id}`;
+        if (!replyInFlight.has(key)) {
           const client = agency.clients.find((c) => c.id === thread.client_id);
-          replyInFlight.set(thread.id, draftReply({ agency, client, invoice: view, sources, reply }).finally(() => replyInFlight.delete(thread.id)));
+          replyInFlight.set(key, draftReply({ agency, client, invoice: view, sources, reply }).finally(() => replyInFlight.delete(key)));
         }
-        out = await replyInFlight.get(thread.id);
+        out = await replyInFlight.get(key);
         const problem = draftProblem(out.draft, view, sources) || (thread.line_key && out.draft.line_key !== thread.line_key ? "The draft is about a different line than the dispute." : "");
         if (problem) throw new Error(problem);
         out = { ...out, seconds: Math.round((Date.now() - started) / 1000) };
@@ -1034,7 +1077,8 @@ export function createApp({
 
   app.post("/api/reset", (req, res) => {
     store.reset();
-    mockPaypal.reset();
+    // The mock's invoices are shared by every demo; only the scripts' demo clears them.
+    if (store.currentDemo() === store.MAIN) mockPaypal.reset();
     res.json({ ok: true });
   });
 
