@@ -60,9 +60,9 @@ claude mcp add --transport http paytally https://paytally-wyzc.onrender.com/mcp 
 | Reading the work log | 39 of 40 items match the hand-checked answer key; the 40th flagged for the owner, not guessed | `npm run eval`, Oct 22, 2026 |
 | Dispute drafts | 2 of 2 right line and right call | `npm run eval:replies`, Oct 22, 2026 |
 | Two-agent settlement | 7 of 7 checks on the saved run | `npm run eval:settlement`, Oct 2026 |
-| Real PayPal sandbox, end to end | passed: send, pay, refund, corrected invoice, agent settlement paid by saved card | `npm run smoke:sandbox` |
+| Real PayPal sandbox, end to end | passed on the hosted demo: send, pay, refund, corrected invoice, agent settlement paid by saved card; twice in a row, then two judges at once, each in their own demo | `npm run smoke:sandbox -- <url> [--browser]`, Nov 3, 2026 |
 
-What failed on the way, and what changed: an early settlement run kept a charge the client's text showed was a no-show, because the text wasn't in the log; PayTally's agent now treats a call or text as outside the log and tells the owner what to check. Two later runs disputed a late-reported no-show the terms allow; the check now requires only that it is accepted, which matches the terms. PayPal's sandbox now refuses one of its own published test cards (PAYER_CANNOT_PAY), so the demo uses another.
+What failed on the way, and what changed: an early settlement run kept a charge the client's text showed was a no-show, because the text wasn't in the log; PayTally's agent now treats a call or text as outside the log and tells the owner what to check. Two later runs disputed a late-reported no-show the terms allow; the check now requires only that it is accepted, which matches the terms. PayPal's sandbox now refuses one of its own published test cards (PAYER_CANNOT_PAY), so the demo uses another. Running the hosted demo as a second judge would showed every refund after the first failing (DUPLICATE_REQUEST_ID: the refund's `PayPal-Request-Id` repeated across demo runs); the id now names the card capture it refunds. And judges shared one demo, so one judge's reset wiped another's run; each browser now has its own.
 
 ## Run it
 
@@ -85,7 +85,7 @@ npm run eval                      # scores a live Claude reading against the ans
 npm run eval -- --save            # same, and saves it as the recorded run
 npm run eval:replies [-- --save]  # scores Claude's dispute drafts against the hand-checked answers
 npm run eval:settlement [-- --save] # runs the two-agent settlement live and checks 7 things (needs an API key)
-npm run smoke:sandbox [base URL]  # runs the whole flow against the real PayPal sandbox (local, or a deployed copy)
+npm run smoke:sandbox [base URL] [--browser]  # runs the whole flow against the real PayPal sandbox (local, or a deployed copy; --browser runs it in its own demo, as a judge's browser does)
 ```
 
 ## Deploy (Render)
@@ -98,7 +98,7 @@ Everything in `data/` is invented: the agency (Lanternfish Leads), its three cli
 
 ## Status
 
-Built and hosted: invoicing through the PayPal Agent Toolkit, paid by webhook, overdue reminders, Claude dispute replies that cite the source row, the client's agent settling over MCP, saved-card payments and real refunds in the PayPal sandbox, and the AG Studio dashboard. Next: the video and the write-up.
+Built and hosted: invoicing through the PayPal Agent Toolkit, paid by webhook, overdue reminders, Claude dispute replies that cite the source row, the client's agent settling over MCP, saved-card payments and real refunds in the PayPal sandbox, the AG Studio dashboard, and a separate demo for each browser. The Devpost write-up is in `docs/devpost-submission.md`; next, the video (`docs/video-script.md`).
 
 ## License
 

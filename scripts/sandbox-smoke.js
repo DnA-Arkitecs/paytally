@@ -6,11 +6,13 @@
 // Needs PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (sandbox).
 //   npm run smoke:sandbox                  status from "Check PayPal" (no public URL, so no webhook)
 //   npm run smoke:sandbox -- <base URL>    drive a deployed copy instead, where PayPal's webhook marks it paid
+//   add --browser to run as a judge's browser does: in its own demo, named by the page's cookie
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const remote = process.argv[2];
+const asBrowser = process.argv.includes("--browser");
+const remote = process.argv.slice(2).find((a) => !a.startsWith("--"));
 let base = remote?.replace(/\/$/, "");
 let server = null;
 if (!base) {
@@ -26,13 +28,20 @@ if (!base) {
   base = `http://127.0.0.1:${server.address().port}`;
 }
 
+let cookie = "";
+if (asBrowser) {
+  const page = await fetch(`${base}/`, { headers: { accept: "text/html" } });
+  cookie = page.headers.get("set-cookie")?.split(";")[0] || "";
+  if (!cookie) throw new Error("The page set no demo cookie.");
+}
+const headers = { "content-type": "application/json", ...(cookie ? { cookie } : {}) };
 const post = async (url, body = {}) => {
-  const r = await fetch(base + url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(base + url, { method: "POST", headers, body: JSON.stringify(body) });
   const out = await r.json();
   if (!r.ok) throw new Error(`${url} -> ${r.status}: ${out.error}`);
   return out;
 };
-const state = () => fetch(`${base}/api/state`).then((r) => r.json());
+const state = () => fetch(`${base}/api/state`, { headers }).then((r) => r.json());
 const record = (s, pid) => s.collections.find((r) => r.paypal_id === pid);
 const step = (text) => console.log(`- ${text}`);
 
@@ -63,7 +72,7 @@ try {
   await post("/api/build");
   let s = await state();
   if (s.modes.paypal !== "sandbox") throw new Error(`PayPal is in ${s.modes.paypal} mode.`);
-  step(`PayPal ${s.modes.paypal}, webhook ${s.modes.webhook}`);
+  step(`PayPal ${s.modes.paypal}, webhook ${s.modes.webhook}, demo ${cookie ? cookie.split("=")[1] : "main (no cookie)"}`);
 
   const sept = s.collections.find((r) => r.kind === "history");
   step(`September invoice ${sept.number} (${sept.paypal_id}) is ${sept.days_overdue} days overdue`);
