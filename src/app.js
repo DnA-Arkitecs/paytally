@@ -971,7 +971,9 @@ export function createApp({
       if (preview.how === "refund") {
         // Paid through PayPal: PayPal returns the money from the original capture.
         const capture = (record.payments || []).at(-1);
-        const refund = { kind: "refund", invoice_id: record.paypal_id, amount: preview.amount, currency: agency.currency, capture_id: capture?.capture_id || null, note: `Credit for ${preview.item}, after your reply.`, request_id: `refund-${thread.id}` };
+        // PayPal never forgets a request id, and every demo reset reuses thread ids,
+        // so the id names this capture: a retry stays safe, the next demo run is new.
+        const refund = { kind: "refund", invoice_id: record.paypal_id, amount: preview.amount, currency: agency.currency, capture_id: capture?.capture_id || null, note: `Credit for ${preview.item}, after your reply.`, request_id: `refund-${capture?.capture_id || record.paypal_id}-${thread.id}` };
         const approval = issueApproval(refund, { approvedBy: owner });
         record.awaiting = { what: "refund", at };
         store.save(state);

@@ -136,6 +136,20 @@ export async function recordRefund(id, refund) {
 // Orders, Vault and refunds (payments.js in the sandbox).
 const mockId = (prefix) => `${prefix}${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
 
+// Like PayPal: a request id runs once. The same call again returns the first
+// result; the id on a different call is refused. Kept across demo resets,
+// because PayPal keeps them too.
+const requestIds = new Map();
+function once(requestId, call, run) {
+  if (!requestId) return run();
+  const seen = requestIds.get(requestId);
+  if (seen && seen.call !== call) throw new Error("PayPal mock: DUPLICATE_REQUEST_ID: The value of PayPal-Request-Id header has already been used.");
+  if (seen) return seen.result;
+  const result = run();
+  requestIds.set(requestId, { call, result });
+  return result;
+}
+
 function emitPayment(type, resource) {
   const event = { id: mockId("WH-MOCK-"), event_type: type, create_time: new Date().toISOString(), resource_type: type.includes("REFUND") ? "refund" : "capture", resource };
   setTimeout(() => listeners.forEach((fn) => fn(event)), EVENT_DELAY_MS).unref?.();
@@ -145,16 +159,20 @@ export async function saveCard({ number }) {
   return { vault_id: mockId("VAULT-MOCK-"), brand: "VISA", last_digits: number.slice(-4) };
 }
 
-export async function charge({ amount, currency, custom_id, invoice_id }) {
-  const capture_id = mockId("CAP-MOCK-");
-  emitPayment("PAYMENT.CAPTURE.COMPLETED", { id: capture_id, status: "COMPLETED", custom_id, invoice_id, amount: { currency_code: currency, value: Number(amount).toFixed(2) } });
-  return { order_id: mockId("ORDER-MOCK-"), capture_id, status: "COMPLETED" };
+export async function charge({ amount, currency, custom_id, invoice_id, request_id }) {
+  return once(request_id, `charge ${invoice_id} ${amount}`, () => {
+    const capture_id = mockId("CAP-MOCK-");
+    emitPayment("PAYMENT.CAPTURE.COMPLETED", { id: capture_id, status: "COMPLETED", custom_id, invoice_id, amount: { currency_code: currency, value: Number(amount).toFixed(2) } });
+    return { order_id: mockId("ORDER-MOCK-"), capture_id, status: "COMPLETED" };
+  });
 }
 
-export async function refundCapture(captureId, { amount, currency }) {
-  const refund_id = mockId("REF-MOCK-");
-  emitPayment("PAYMENT.CAPTURE.REFUNDED", { id: refund_id, status: "COMPLETED", amount: { currency_code: currency, value: Number(amount).toFixed(2) }, links: [{ rel: "up", href: `/v2/payments/captures/${captureId}` }] });
-  return { refund_id, status: "COMPLETED" };
+export async function refundCapture(captureId, { amount, currency, request_id }) {
+  return once(request_id, `refund ${captureId} ${amount}`, () => {
+    const refund_id = mockId("REF-MOCK-");
+    emitPayment("PAYMENT.CAPTURE.REFUNDED", { id: refund_id, status: "COMPLETED", amount: { currency_code: currency, value: Number(amount).toFixed(2) }, links: [{ rel: "up", href: `/v2/payments/captures/${captureId}` }] });
+    return { refund_id, status: "COMPLETED" };
+  });
 }
 
 export async function getInvoice(id) {

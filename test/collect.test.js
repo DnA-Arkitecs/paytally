@@ -183,3 +183,22 @@ test("paid by webhook, overdue reminder, and disputes credited through PayPal (m
   assert.match(page, new RegExp(`Corrected invoice, replacing invoice ${old.number}`));
   assert.equal((await post("/api/replies/R2/send", { decision: "keep", text: "again" })).status, 409, "an answered reply can't be sent twice");
 });
+
+// Every judge resets the demo and credits the same reply, and PayPal refuses a
+// request id it has seen on another call (DUPLICATE_REQUEST_ID, found on the
+// hosted demo 2026-11-03). Each run's refund must still go through.
+test("every demo run's refund goes through, not only the first", async () => {
+  for (let run = 1; run <= 2; run++) {
+    assert.equal((await post("/api/reset")).status, 200);
+    assert.equal((await post("/api/build")).status, 200);
+    const hp = await approveClient("harbor-pine");
+    assert.equal((await post(`/api/invoices/${hp.paypal_id}/test-pay`)).status, 200);
+    await until((x) => record(x, hp.paypal_id).status === "MARKED_AS_PAID");
+    assert.equal((await post("/api/replies/R1/arrive")).status, 200);
+    const r1 = (await state()).threads.find((t) => t.id === "R1");
+    const sent = await post("/api/replies/R1/send", { decision: "credit", text: r1.draft.reply_if_credit, expected_credit: 150 });
+    assert.equal(sent.status, 200, `run ${run}: ${sent.body.error}`);
+    const s = await until((x) => record(x, hp.paypal_id).status === "PARTIALLY_REFUNDED");
+    assert.equal(record(s, hp.paypal_id).refunds[0].moved_money, true);
+  }
+});
