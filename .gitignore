@@ -17,3 +17,10 @@ var/
 Thumbs.db
 .vscode/
 *.log
+
+# Demo video build outputs (made locally)
+video/frames/
+video/voice/
+video/out/
+video/fonts/
+video/node_modules/
