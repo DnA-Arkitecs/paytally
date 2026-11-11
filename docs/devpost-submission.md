@@ -30,7 +30,7 @@ claude, claude-api, anthropic, claude-code, paypal, paypal-agent-toolkit, paypal
 
 Anyone paid per result bills from scattered records: lead-generation and appointment-setting agencies, recruiters, performance marketers, freelancers paid per milestone. Each client has different terms, and the proof sits in a calendar, a CRM and an inbox. Month-end means counting by hand, and the count is where the money leaks.
 
-I built and run an outbound system that has booked 2,447 meetings for 14 financial advisors since October 2025. Advisors pay per meeting or share revenue, so every month someone has to count what's billable. One month the count on file was 531. Twenty-four were test bookings. The real number was 507. Billing was the messiest step in the business, so I built the agent I wanted.
+I built and run an outbound system that has booked 2,424 meetings for 14 financial advisors since October 2025. Advisors pay per meeting or share revenue, so every month someone has to count what's billable. One month the count on file was 531. Twenty-four were test bookings. The real number was 507. Billing was the messiest step in the business, so I built the agent I wanted.
 
 On one real week of my own bookings (Oct 12–18, 2026), PayTally read all 96 and matched 15 of 15 billable meetings to my records at the right price, and flagged 1 for my review.
 
